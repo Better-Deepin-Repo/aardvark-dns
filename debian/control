@@ -33,5 +33,5 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Enhances: podman
 Description: Container-focused DNS server
- Netavark is designed to work with but is also applicable
- for other OCI container management applications.
+ Netavark is designed to work with podman but is also applicable for other OCI
+ container management applications.
