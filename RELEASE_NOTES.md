@@ -1,10 +1,25 @@
 # Release Notes
 
+## v1.4.0
+* Add support for network scoped dns servers; declare DNS at a network level
+
+## v1.3.0
+* allow one or more dns servers in the aardvark config
+
+## v1.2.0
+* coredns: do not combine results of A and AAAA records
+* run,serve: create aardvark pid in child before we notify parent process
+* coredns: response message set recursion available if RD is true
+* document configuration format
+
+## v1.1.0
+* Changed Aardvark to fork on startup to daemonize, as opposed to have this done by callers. This avoids race conditions around startup.
+* Name resolution is now case-insensitive.
+
 ## v1.0.3
 * Updated dependancy libraries
 * Reduction in CPU use
 * Fixed bug with duplicate network names
-
 
 ## v1.0.2
 * Updated dependency libraries

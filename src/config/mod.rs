@@ -42,6 +42,8 @@ pub fn parse_configs(
     let mut network_names: HashMap<String, HashMap<String, Vec<IpAddr>>> = HashMap::new();
     let mut listen_ips_4: HashMap<String, Vec<Ipv4Addr>> = HashMap::new();
     let mut listen_ips_6: HashMap<String, Vec<Ipv6Addr>> = HashMap::new();
+    let mut ctr_dns_server: HashMap<IpAddr, Option<Vec<IpAddr>>> = HashMap::new();
+    let mut network_dns_server: HashMap<String, Vec<IpAddr>> = HashMap::new();
 
     // Enumerate all files in the directory, read them in one by one.
     // Steadily build a map of what container has what IPs and what
@@ -62,7 +64,7 @@ pub fn parse_configs(
                         continue;
                     }
                 }
-                let (bind_ips, ctr_entry) = parse_config(cfg.path().as_path())?;
+                let parsed_network_config = parse_config(cfg.path().as_path())?;
 
                 let network_name: String = match cfg.path().file_name() {
                     // This isn't *completely* safe, but I do not foresee many
@@ -81,7 +83,16 @@ pub fn parse_configs(
                         )),
                 };
 
-                for ip in bind_ips {
+                // Network DNS Servers were found while parsing config
+                // lets populate the backend
+                if !parsed_network_config.network_dnsservers.is_empty() {
+                    network_dns_server.insert(
+                        network_name.clone(),
+                        parsed_network_config.network_dnsservers,
+                    );
+                }
+
+                for ip in parsed_network_config.network_bind_ip {
                     match ip {
                         IpAddr::V4(a) => listen_ips_4
                             .entry(network_name.clone())
@@ -94,7 +105,7 @@ pub fn parse_configs(
                     }
                 }
 
-                for entry in ctr_entry {
+                for entry in parsed_network_config.container_entry {
                     // Container network membership
                     let ctr_networks = network_membership
                         .entry(entry.id.clone())
@@ -108,22 +119,28 @@ pub fn parse_configs(
                     // Container IP addresses
                     let mut new_ctr_ips: Vec<IpAddr> = Vec::new();
                     if let Some(v4) = entry.v4 {
-                        reverse
-                            .entry(network_name.clone())
-                            .or_insert_with(HashMap::new)
-                            .entry(std::net::IpAddr::V4(v4))
-                            .or_insert_with(Vec::new)
-                            .append(&mut entry.aliases.clone());
-                        new_ctr_ips.push(IpAddr::V4(v4));
+                        for ip in v4 {
+                            reverse
+                                .entry(network_name.clone())
+                                .or_insert_with(HashMap::new)
+                                .entry(IpAddr::V4(ip))
+                                .or_insert_with(Vec::new)
+                                .append(&mut entry.aliases.clone());
+                            ctr_dns_server.insert(IpAddr::V4(ip), entry.dns_servers.clone());
+                            new_ctr_ips.push(IpAddr::V4(ip));
+                        }
                     }
                     if let Some(v6) = entry.v6 {
-                        reverse
-                            .entry(network_name.clone())
-                            .or_insert_with(HashMap::new)
-                            .entry(std::net::IpAddr::V6(v6))
-                            .or_insert_with(Vec::new)
-                            .append(&mut entry.aliases.clone());
-                        new_ctr_ips.push(IpAddr::V6(v6));
+                        for ip in v6 {
+                            reverse
+                                .entry(network_name.clone())
+                                .or_insert_with(HashMap::new)
+                                .entry(IpAddr::V6(ip))
+                                .or_insert_with(Vec::new)
+                                .append(&mut entry.aliases.clone());
+                            ctr_dns_server.insert(IpAddr::V6(ip), entry.dns_servers.clone());
+                            new_ctr_ips.push(IpAddr::V6(ip));
+                        }
                     }
 
                     let ctr_ips = container_ips
@@ -169,7 +186,13 @@ pub fn parse_configs(
     }
 
     Ok((
-        DNSBackend::new(&ctrs, &network_names, &reverse),
+        DNSBackend::new(
+            ctrs,
+            network_names,
+            reverse,
+            ctr_dns_server,
+            network_dns_server,
+        ),
         listen_ips_4,
         listen_ips_6,
     ))
@@ -178,17 +201,28 @@ pub fn parse_configs(
 // A single entry in a config file
 struct CtrEntry {
     id: String,
-    v4: Option<Ipv4Addr>,
-    v6: Option<Ipv6Addr>,
+    v4: Option<Vec<Ipv4Addr>>,
+    v6: Option<Vec<Ipv6Addr>>,
     aliases: Vec<String>,
+    dns_servers: Option<Vec<IpAddr>>,
+}
+
+// A simplified type for results retured by
+// parse_config after parsing a single network
+// config.
+struct ParsedNetworkConfig {
+    network_bind_ip: Vec<IpAddr>,
+    container_entry: Vec<CtrEntry>,
+    network_dnsservers: Vec<IpAddr>,
 }
 
 // Read and parse a single given configuration file
-fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), std::io::Error> {
+fn parse_config(path: &std::path::Path) -> Result<ParsedNetworkConfig, std::io::Error> {
     let content = read_to_string(path)?;
     let mut is_first = true;
 
     let mut bind_addrs: Vec<IpAddr> = Vec::new();
+    let mut network_dns_servers: Vec<IpAddr> = Vec::new();
     let mut ctrs: Vec<CtrEntry> = Vec::new();
 
     // Split on newline, parse each line
@@ -197,31 +231,43 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
             continue;
         }
         if is_first {
-            // First line is comma-separated V4 and V6
-            if line.contains(',') {
-                for ip in line.split(',') {
+            let network_parts = line.split(' ').collect::<Vec<&str>>();
+            if network_parts.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("invalid network configuration file: {}", path.display()),
+                ));
+            }
+            // process bind ip
+            for ip in network_parts[0].split(',') {
+                let local_ip = match ip.parse() {
+                    Ok(l) => l,
+                    Err(e) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("error parsing ip address {}: {}", ip, e),
+                        ))
+                    }
+                };
+                bind_addrs.push(local_ip);
+            }
+
+            // If network parts contain more than one col then
+            // we have custom dns server also defined at network level
+            // lets process that.
+            if network_parts.len() > 1 {
+                for ip in network_parts[1].split(',') {
                     let local_ip = match ip.parse() {
                         Ok(l) => l,
                         Err(e) => {
                             return Err(std::io::Error::new(
                                 std::io::ErrorKind::Other,
-                                format!("error parsing ip address {}: {}", ip, e),
+                                format!("error parsing network dns address {}: {}", ip, e),
                             ))
                         }
                     };
-                    bind_addrs.push(local_ip);
+                    network_dns_servers.push(local_ip);
                 }
-            } else {
-                let local_ip = match line.parse() {
-                    Ok(l) => l,
-                    Err(e) => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("error parsing ip address {}: {}", line, e),
-                        ))
-                    }
-                };
-                bind_addrs.push(local_ip);
             }
 
             is_first = false;
@@ -230,7 +276,7 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
 
         // Split on space
         let parts = line.split(' ').collect::<Vec<&str>>();
-        if parts.len() != 4 {
+        if parts.len() < 4 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
@@ -241,9 +287,8 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
             ));
         }
 
-        let mut v4_addr: Option<Ipv4Addr> = None;
-        if !parts[1].is_empty() {
-            let ipv4: Ipv4Addr = match parts[1].parse() {
+        let v4_addrs: Option<Vec<Ipv4Addr>> = if !parts[1].is_empty() {
+            let ipv4 = match parts[1].split(',').map(|i| i.parse()).collect() {
                 Ok(i) => i,
                 Err(e) => {
                     return Err(std::io::Error::new(
@@ -252,12 +297,13 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
                     ))
                 }
             };
-            v4_addr = Some(ipv4);
-        }
+            Some(ipv4)
+        } else {
+            None
+        };
 
-        let mut v6_addr: Option<Ipv6Addr> = None;
-        if !parts[2].is_empty() {
-            let ipv6: Ipv6Addr = match parts[2].parse() {
+        let v6_addrs: Option<Vec<Ipv6Addr>> = if !parts[2].is_empty() {
+            let ipv6 = match parts[2].split(',').map(|i| i.parse()).collect() {
                 Ok(i) => i,
                 Err(e) => {
                     return Err(std::io::Error::new(
@@ -266,11 +312,14 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
                     ))
                 }
             };
-            v6_addr = Some(ipv6);
-        }
+            Some(ipv6)
+        } else {
+            None
+        };
+
         let aliases: Vec<String> = parts[3]
             .split(',')
-            .map(|x| x.to_string())
+            .map(|x| x.to_string().to_lowercase())
             .collect::<Vec<String>>();
 
         if aliases.is_empty() {
@@ -284,11 +333,27 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
             ));
         }
 
+        let dns_servers: Option<Vec<IpAddr>> = if parts.len() == 5 && !parts[4].is_empty() {
+            let dns_server = match parts[4].split(',').map(|i| i.parse()).collect() {
+                Ok(i) => i,
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("error parsing DNS server address {}: {}", parts[4], e),
+                    ))
+                }
+            };
+            Some(dns_server)
+        } else {
+            None
+        };
+
         ctrs.push(CtrEntry {
-            id: parts[0].to_string(),
-            v4: v4_addr,
-            v6: v6_addr,
+            id: parts[0].to_string().to_lowercase(),
+            v4: v4_addrs,
+            v6: v6_addrs,
             aliases,
+            dns_servers,
         });
     }
 
@@ -303,5 +368,9 @@ fn parse_config(path: &std::path::Path) -> Result<(Vec<IpAddr>, Vec<CtrEntry>), 
         ));
     }
 
-    Ok((bind_addrs, ctrs))
+    Ok(ParsedNetworkConfig {
+        network_bind_ip: bind_addrs,
+        container_entry: ctrs,
+        network_dnsservers: network_dns_servers,
+    })
 }

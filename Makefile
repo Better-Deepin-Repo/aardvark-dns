@@ -10,6 +10,9 @@ LIBEXECDIR ?= ${PREFIX}/libexec
 LIBEXECPODMAN ?= ${LIBEXECDIR}/podman
 
 SELINUXOPT ?= $(shell test -x /usr/sbin/selinuxenabled && selinuxenabled && echo -Z)
+# Get crate version by parsing the line that starts with version.
+CRATE_VERSION ?= $(shell grep ^version Cargo.toml | awk '{print $$3}')
+GIT_TAG ?= $(shell git describe --tags)
 
 # Set this to any non-empty string to enable unoptimized
 # build w/ debugging features.
@@ -47,10 +50,20 @@ build: bin $(CARGO_TARGET_DIR)
 	cargo build $(release)
 	cp $(CARGO_TARGET_DIR)/$(profile)/aardvark-dns bin/aardvark-dns$(if $(debug),.debug,)
 
+.PHONY: crate-publish
+crate-publish:
+	@if [ "$(CRATE_VERSION)" != "$(GIT_TAG)" ]; then\
+		echo "Git tag is not equivalent to the version set in Cargo.toml. Please checkout the correct tag";\
+		exit 1;\
+	fi
+	@echo "It is expected that you have already done 'cargo login' before running this command. If not command may fail later"
+	cargo publish --dry-run
+	cargo publish
+
 .PHONY: clean
 clean:
 	rm -rf bin
-	if [[ "$(CARGO_TARGET_DIR)" == "targets" ]]; then rm -rf targets; fi
+	if [ "$(CARGO_TARGET_DIR)" = "targets" ]; then rm -rf targets; fi
 	$(MAKE) -C docs clean
 
 #.PHONY: docs
@@ -79,6 +92,13 @@ build_unit: $(CARGO_TARGET_DIR)
 unit: $(CARGO_TARGET_DIR)
 	cargo test
 
+#.PHONY: code_coverage
+# Can be used by CI and users to generate code coverage report based on aardvark unit tests
+code_coverage: $(CARGO_TARGET_DIR)
+	# Downloads tarpaulin only if same version is not present on local
+	cargo install cargo-tarpaulin
+	cargo tarpaulin -v
+
 #.PHONY: integration
 integration: $(CARGO_TARGET_DIR)
 	# needs to be run as root or with podman unshare --rootless-netns
@@ -93,17 +113,17 @@ validate: $(CARGO_TARGET_DIR)
 	cargo fmt --all -- --check
 	cargo clippy -p aardvark-dns -- -D warnings
 
-.PHONY: vendor
-vendor: ## vendor everything into vendor/
-	cargo vendor
-	$(MAKE) vendor-rm-windows ## remove windows library if possible
+.PHONY: vendor-tarball
+vendor-tarball: build install.cargo-vendor-filterer
+	VERSION=$(shell bin/aardvark-dns --version | cut -f2 -d" ") && \
+	cargo vendor-filterer '--platform=*-unknown-linux-*' --format=tar.gz --prefix vendor/ && \
+	mv vendor.tar.gz aardvark-dns-v$$VERSION-vendor.tar.gz && \
+	gzip -c bin/aardvark-dns > aardvark-dns.gz && \
+	sha256sum aardvark-dns.gz aardvark-dns-v$$VERSION-vendor.tar.gz > sha256sum
 
-.PHONY: vendor-rm-windows
-vendor-rm-windows:
-	if [ -d "vendor/winapi" ]; then \
-		rm -fr vendor/winapi*gnu*/lib/*.a; \
-	fi
-
+.PHONY: install.cargo-vendor-filterer
+install.cargo-vendor-filterer:
+	cargo install cargo-vendor-filterer
 
 .PHONY: help
 help:

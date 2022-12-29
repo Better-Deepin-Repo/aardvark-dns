@@ -19,31 +19,26 @@ env:
     NETAVARK_URL: "https://api.cirrus-ci.com/v1/artifact/github/containers/netavark/success/binary.zip?branch=${NETAVARK_BRANCH}"
     # Save a little typing (path relative to $CIRRUS_WORKING_DIR)
     SCRIPT_BASE: "./contrib/cirrus"
-    FEDORA_NAME: "fedora-35"
-    IMAGE_SUFFIX: "c4801636756357120"
+    IMAGE_SUFFIX: "c5518085466095616"
     FEDORA_NETAVARK_IMAGE: "fedora-netavark-${IMAGE_SUFFIX}"
+    FEDORA_NETAVARK_AMI: "fedora-netavark-aws-arm64-${IMAGE_SUFFIX}"
+    EC2_INST_TYPE: "t4g.xlarge"
 
 
 gcp_credentials: ENCRYPTED[f6a0e4101418bec8180783b208721fc990772817364fed0346f5fd126bf0cfca03738dd8c7fb867944637a1eac7cec37]
 
-
-# Default VM to use unless set or modified by task
-gce_instance: &standard_vm
-    image_project: "libpod-218412"
-    zone: "us-central1-c"
-    cpu: 2
-    memory: "4Gb"
-    disk: 200  # GB, do not set <200 per gcloud warning re: I/O performance
-    image_name: "${FEDORA_NETAVARK_IMAGE}"
-
+aws_credentials: ENCRYPTED[3fab904a98355f84b0bac084f8a50428ff8a27dd2b6a6c42fca77df89010e620a1da3cd246a50b1074e6787c42818080]
 
 build_task:
   alias: "build"
   # Compiling is very CPU intensive, make it chooch quicker for this task only
-  gce_instance:
-    <<: *standard_vm
+  gce_instance: &standard_build_gce_x86_64
+    image_project: "libpod-218412"
+    zone: "us-central1-c"
+    disk: 200  # GB, do not set <200 per gcloud warning re: I/O performance
     cpu: 8
     memory: "8Gb"
+    image_name: "${FEDORA_NETAVARK_IMAGE}"
   cargo_cache: &cargo_cache
     folder: "$CARGO_HOME"
     fingerprint_key: "cargo_v1_${DEST_BRANCH}"  # Cache for branch + PRs
@@ -62,10 +57,46 @@ build_task:
   upload_caches: [ "cargo", "targets", "bin" ]
 
 
+build_aarch64_task:
+  alias: "build_aarch64"
+  # Compiling is very CPU intensive, make it chooch quicker for this task only
+  ec2_instance: &standard_build_ec2_aarch64
+    image: "$FEDORA_NETAVARK_AMI"
+    type: $EC2_INST_TYPE
+    region: us-east-1
+    architecture: arm64  # CAUTION: This has to be "arm64", not aarch64.
+  cargo_cache: &cargo_cache_aarch64
+    <<: *cargo_cache
+    fingerprint_key: "cargo_v1_${DEST_BRANCH}_aarch64"
+  targets_cache: &targets_cache_aarch64
+    <<: *targets_cache
+    fingerprint_key: "cargo_v1_${DEST_BRANCH}_aarch64"
+  bin_cache: &bin_cache_aarch64
+    <<: *bin_cache
+    fingerprint_key: "cargo_v1_${DEST_BRANCH}_aarch64"
+  setup_script: *setup
+  main_script: *main
+  upload_caches: [ "cargo", "targets", "bin" ]
+  # Downstream CI needs the aarch64 binaries from this CI system.
+  # However, we don't want to confuse architectures.
+  art_prep_script:
+    - cd bin
+    - ls -la
+    - mv aardvark-dns aardvark-dns.$(uname -m)-unknown-linux-gnu
+    - mv aardvark-dns.debug aardvark-dns.debug.$(uname -m)-unknown-linux-gnu
+    - mv aardvark-dns.info aardvark-dns.info.$(uname -m)-unknown-linux-gnu
+  armbinary_artifacts:  # See success_task
+    path: ./bin/aardvark-dns*
+
+
 validate_task:
   alias: "validate"
   depends_on:
     - "build"
+  gce_instance: &standard_gce_x86_64
+    <<: *standard_build_gce_x86_64
+    cpu: 2
+    memory: "4Gb"
   # From this point forward, all cache's become read-only for this run.
   cargo_cache: &ro_cargo_cache
     <<: *cargo_cache
@@ -80,13 +111,45 @@ validate_task:
   main_script: *main
 
 
+validate_aarch64_task:
+  alias: "validate_aarch64"
+  depends_on:
+    - "build_aarch64"
+  ec2_instance: *standard_build_ec2_aarch64
+  # From this point forward, all cache's become read-only for this run.
+  cargo_cache: &ro_cargo_cache_aarch64
+    <<: *cargo_cache_aarch64
+    reupload_on_changes: false
+  targets_cache: &ro_targets_cache_aarch64
+    <<: *targets_cache_aarch64
+    reupload_on_changes: false
+  bin_cache: &ro_bin_cache_aarch64
+    <<: *bin_cache_aarch64
+    reupload_on_changes: false
+  setup_script: *setup
+  main_script: *main
+
+
 verify_vendor_task:
   alias: "verify_vendor"
   depends_on:
     - "build"
+  gce_instance: *standard_gce_x86_64
   cargo_cache: *ro_cargo_cache
   targets_cache: *ro_targets_cache
   bin_cache: *ro_bin_cache
+  setup_script: *setup
+  main_script: *main
+
+
+verify_vendor_aarch64_task:
+  alias: "verify_vendor_aarch64"
+  depends_on:
+    - "build_aarch64"
+  ec2_instance: *standard_build_ec2_aarch64
+  cargo_cache: *ro_cargo_cache_aarch64
+  targets_cache: *ro_targets_cache_aarch64
+  bin_cache: *ro_bin_cache_aarch64
   setup_script: *setup
   main_script: *main
 
@@ -95,9 +158,22 @@ unit_task:
   alias: "unit"
   depends_on:
     - "build"  # Run in parallel with validate to save some time
+  gce_instance: *standard_gce_x86_64
   cargo_cache: *ro_cargo_cache
   targets_cache: *ro_targets_cache
   bin_cache: *ro_bin_cache
+  setup_script: *setup
+  main_script: *main
+
+
+unit_aarch64_task:
+  alias: "unit_aarch64"
+  depends_on:
+    - "build_aarch64"  # Run in parallel with validate to save some time
+  ec2_instance: *standard_build_ec2_aarch64
+  cargo_cache: *ro_cargo_cache_aarch64
+  targets_cache: *ro_targets_cache_aarch64
+  bin_cache: *ro_bin_cache_aarch64
   setup_script: *setup
   main_script: *main
 
@@ -106,9 +182,22 @@ integration_task:
   alias: "integration"
   depends_on:
     - "unit"
+  gce_instance: *standard_gce_x86_64
   cargo_cache: *ro_cargo_cache
   targets_cache: *ro_targets_cache
   bin_cache: *ro_bin_cache
+  setup_script: *setup
+  main_script: *main
+
+
+integration_aarch64_task:
+  alias: "integration_aarch64"
+  depends_on:
+    - "unit_aarch64"
+  ec2_instance: *standard_build_ec2_aarch64
+  cargo_cache: *ro_cargo_cache_aarch64
+  targets_cache: *ro_targets_cache_aarch64
+  bin_cache: *ro_bin_cache_aarch64
   setup_script: *setup
   main_script: *main
 
@@ -122,33 +211,25 @@ meta_task:
     container:
         cpu: 2
         memory: 2
-        image: quay.io/libpod/imgts:$IMAGE_SUFFIX
+        image: quay.io/libpod/imgts:latest
     env:
         # Space-separated list of images used by this repository state
         IMGNAMES: "${FEDORA_NETAVARK_IMAGE}"
+        EC2IMGNAMES: "$FEDORA_NETAVARK_AMI"
         BUILDID: "${CIRRUS_BUILD_ID}"
         REPOREF: "${CIRRUS_REPO_NAME}"
+        AWSINI: ENCRYPTED[94661de0a481bfa6757f6ef26f896c28578c764f00364a293871b7576337c947304e2dfa35e3819c066057ef3957237f]
         GCPJSON: ENCRYPTED[4c8f37db84c8afb3d67932ebbf1f062e5e7e54b64e9f99624d96d828d2b8677624fb1470a9b12c097e06afeb11fb8c4e]
         GCPNAME: ENCRYPTED[1d96b7a11a12abe142a2e6f5a97ff6cca2bdcbe73724d560d9a2d339b7323b911c814d814057e19932f9d339e9a4c929]
         GCPPROJECT: libpod-218412
     clone_script: &noop mkdir -p $CIRRUS_WORKING_DIR  # source not needed
     script: /usr/local/bin/entrypoint.sh
 
-fedora36_build_task:
-    alias: fedora36_build
-    depends_on:
-      - "build"
-    container:
-        cpu: 2
-        memory: 2
-        image: quay.io/libpod/fedora36rust
-    script:
-        - cargo build
-
 ubuntu20_build_task:
     alias: ubuntu20_build
     depends_on:
       - "build"
+    gce_instance: *standard_gce_x86_64
     container:
         cpu: 2
         memory: 2
@@ -160,6 +241,7 @@ centos9_build_task:
     alias: centos9_build
     depends_on:
       - "build"
+    gce_instance: *standard_gce_x86_64
     container:
         cpu: 2
         memory: 2
@@ -170,24 +252,45 @@ centos9_build_task:
 
 success_task:
   alias: "success"
+  gce_instance: *standard_gce_x86_64
   name: "Total success"
   depends_on:
     - "build"
+    - "build_aarch64"
     - "validate"
+    - "validate_aarch64"
     - "verify_vendor"
+    - "verify_vendor_aarch64"
     - "unit"
+    - "unit_aarch64"
     - "integration"
+    - "integration_aarch64"
     - "meta"
-    - "fedora36_build"
     - "ubuntu20_build"
     - "centos9_build"
-
+  env:
+    API_URL_BASE: "https://api.cirrus-ci.com/v1/artifact/build/${CIRRUS_BUILD_ID}"
+    # FAIL task if all expected binary flavors are not present
+    EXP_BINS: >-
+        aardvark-dns
+        aardvark-dns.debug
+        aardvark-dns.info
+        aardvark-dns.aarch64-unknown-linux-gnu
+        aardvark-dns.debug.aarch64-unknown-linux-gnu
+        aardvark-dns.info.aarch64-unknown-linux-gnu
   bin_cache: *ro_bin_cache
   clone_script: *noop
   # The paths used for uploaded artifacts are relative here and in Cirrus
   artifacts_prep_script:
+    - set -x
+    - curl --fail --location -o /tmp/armbinary.zip ${API_URL_BASE}/build_aarch64/armbinary.zip
+    - unzip /tmp/armbinary.zip
     - mv bin/* ./
     - rm -rf bin
+  artifacts_test_script:  # Other CI systems depend on all files being present
+    - ls -la
+    # If there's a missing file, show what it was in the output
+    - for fn in $EXP_BINS; do [[ -r "$(echo $fn|tee /dev/stderr)" ]] || exit 1; done
   # Upload tested binary for consumption downstream
   # https://cirrus-ci.org/guide/writing-tasks/#artifacts-instruction
   binary_artifacts:

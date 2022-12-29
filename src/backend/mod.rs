@@ -19,8 +19,9 @@ pub struct DNSBackend {
     pub reverse_mappings: HashMap<String, HashMap<IpAddr, Vec<String>>>,
     // Map of IP address to DNS server IPs to service queries not handled
     // directly.
-    // Not implemented in initial version, we will always use host resolvers.
-    //ctr_dns: HashMap<IpAddr, Vec<IpAddr>>,
+    pub ctr_dns_server: HashMap<IpAddr, Option<Vec<IpAddr>>>,
+    // Map of network name and DNS server IPs.
+    pub network_dns_server: HashMap<String, Vec<IpAddr>>,
 }
 
 pub enum DNSResult {
@@ -38,17 +39,19 @@ pub enum DNSResult {
 
 impl DNSBackend {
     // Create a new backend from the given set of network mappings.
-    // TODO: If we want to optimize even more strongly, we can probably avoid
-    // the clone() calls here.
     pub fn new(
-        containers: &HashMap<IpAddr, Vec<String>>,
-        networks: &HashMap<String, HashMap<String, Vec<IpAddr>>>,
-        reverse: &HashMap<String, HashMap<IpAddr, Vec<String>>>,
+        containers: HashMap<IpAddr, Vec<String>>,
+        networks: HashMap<String, HashMap<String, Vec<IpAddr>>>,
+        reverse: HashMap<String, HashMap<IpAddr, Vec<String>>>,
+        ctr_dns_server: HashMap<IpAddr, Option<Vec<IpAddr>>>,
+        network_dns_server: HashMap<String, Vec<IpAddr>>,
     ) -> DNSBackend {
         DNSBackend {
-            ip_mappings: containers.clone(),
-            name_mappings: networks.clone(),
-            reverse_mappings: reverse.clone(),
+            ip_mappings: containers,
+            name_mappings: networks,
+            reverse_mappings: reverse,
+            ctr_dns_server,
+            network_dns_server,
         }
     }
 
@@ -58,7 +61,9 @@ impl DNSBackend {
     // TODO: right now this returns v4 and v6 addresses intermixed and relies on
     // the caller to sort through them; we could add a v6 bool as an argument
     // and do it here instead.
-    pub fn lookup(&self, requester: &IpAddr, mut name: &str) -> DNSResult {
+    pub fn lookup(&self, requester: &IpAddr, entry: &str) -> DNSResult {
+        // Normalize lookup entry to lowercase.
+        let mut name = entry.to_lowercase();
         let nets = match self.ip_mappings.get(requester) {
             Some(n) => n,
             None => return DNSResult::NoSuchIP,
@@ -78,11 +83,11 @@ impl DNSBackend {
             if !name.is_empty() {
                 if let Some(lastchar) = name.chars().last() {
                     if lastchar == '.' {
-                        name = &name[0..name.len() - 1];
+                        name = (name[0..name.len() - 1]).to_string();
                     }
                 }
             }
-            if let Some(addrs) = net_names.get(name) {
+            if let Some(addrs) = net_names.get(&name) {
                 results.append(&mut addrs.clone());
             }
         }
@@ -92,6 +97,27 @@ impl DNSBackend {
         }
 
         DNSResult::Success(results)
+    }
+
+    // Returns list of network resolvers for a particular container
+    pub fn get_network_scoped_resolvers(&self, requester: &IpAddr) -> Option<Vec<IpAddr>> {
+        let mut results: Vec<IpAddr> = Vec::new();
+
+        match self.ip_mappings.get(requester) {
+            Some(nets) => {
+                for net in nets {
+                    match self.network_dns_server.get(net) {
+                        Some(resolvers) => results.extend_from_slice(resolvers),
+                        None => {
+                            continue;
+                        }
+                    };
+                }
+            }
+            None => return None,
+        };
+
+        Some(results)
     }
 
     /// Return a single name resolved via mapping if it exists.
