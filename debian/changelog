@@ -1,3 +1,9 @@
+aardvark-dns (1.4.0-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Reinhard Tartler <siretart@tauware.de>  Thu, 29 Dec 2022 10:05:04 -0500
+
 aardvark-dns (1.0.3-1) unstable; urgency=medium
 
   * Initial release, Closes: #1014718
