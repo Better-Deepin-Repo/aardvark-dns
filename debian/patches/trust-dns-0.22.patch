@@ -1,22 +1,23 @@
 From: Reinhard Tartler <siretart@tauware.de>
 Description: Make it compile with trust-dns 0.21
 
-diff --git a/src/dns/coredns.rs b/src/dns/coredns.rs
-index 0eb922a..e83e0a6 100644
---- a/src/dns/coredns.rs
-+++ b/src/dns/coredns.rs
-@@ -1,8 +1,10 @@
+Index: aardvark-dns/src/dns/coredns.rs
+===================================================================
+--- aardvark-dns.orig/src/dns/coredns.rs
++++ aardvark-dns/src/dns/coredns.rs
+@@ -1,9 +1,11 @@
  use crate::backend::DNSBackend;
  use crate::backend::DNSResult;
  use futures_util::StreamExt;
 +use futures_util::TryStreamExt;
  use log::{debug, error, trace, warn};
  use resolv_conf;
+ use resolv_conf::ScopedIp;
 +use std::convert::TryInto;
  use std::env;
  use std::fs::File;
  use std::io::Read;
-@@ -14,8 +16,8 @@ use trust_dns_proto::{
+@@ -15,8 +17,8 @@ use trust_dns_proto::{
      op::{Message, MessageType, ResponseCode},
      rr::{DNSClass, RData, Record, RecordType},
      udp::{UdpClientStream, UdpStream},
@@ -27,7 +28,7 @@ index 0eb922a..e83e0a6 100644
  };
  
  pub struct CoreDns {
-@@ -103,7 +105,8 @@ impl CoreDns {
+@@ -104,7 +106,8 @@ impl CoreDns {
  
          // Do we need to serve on tcp anywhere in future ?
          let socket = UdpSocket::bind(format!("{}:{}", self.address, self.port)).await?;
@@ -37,7 +38,7 @@ index 0eb922a..e83e0a6 100644
  
          loop {
              tokio::select! {
-@@ -336,7 +339,7 @@ impl CoreDns {
+@@ -359,7 +362,7 @@ impl CoreDns {
      }
  }
  
@@ -46,7 +47,7 @@ index 0eb922a..e83e0a6 100644
      let id = msg.id();
      let mut msg_mut = msg.clone();
      msg_mut.set_message_type(MessageType::Response);
-@@ -390,8 +393,8 @@ async fn forward_dns_req(mut cl: AsyncClient, message: Message) -> Option<Messag
+@@ -417,8 +420,8 @@ async fn forward_dns_req(mut cl: AsyncCl
      let req = DnsRequest::new(message, Default::default());
      let id = req.id();
  
@@ -57,7 +58,7 @@ index 0eb922a..e83e0a6 100644
              response.set_id(id);
              for answer in response.answers() {
                  debug!(
-@@ -405,6 +408,10 @@ async fn forward_dns_req(mut cl: AsyncClient, message: Message) -> Option<Messag
+@@ -432,6 +435,10 @@ async fn forward_dns_req(mut cl: AsyncCl
              }
              Some(response.into())
          }
