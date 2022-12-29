@@ -1,8 +1,11 @@
 aardvark-dns (1.4.0-1) unstable; urgency=medium
 
   * New upstream release
+  * Fix package description, Closes: #1016767
+  * Run the testsuite
+  * tighten dependency on netavark
 
- -- Reinhard Tartler <siretart@tauware.de>  Thu, 29 Dec 2022 10:05:04 -0500
+ -- Reinhard Tartler <siretart@tauware.de>  Mon, 02 Jan 2023 10:36:17 -0500
 
 aardvark-dns (1.0.3-1) unstable; urgency=medium
 
