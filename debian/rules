@@ -7,6 +7,10 @@ _mkchecksum = printf '{"package":"%s","files":{}}\n' \
 %:
 	dh $@ --buildsystem cargo
 
+# actually run the testsuite, not just build it
+override_dh_auto_test:
+	dh_auto_test -v --buildsystem cargo -- test
+
 execute_before_dh_auto_configure:
 	$(call _mkchecksum,debian/cargo-checksum.json,Cargo.toml)
 
