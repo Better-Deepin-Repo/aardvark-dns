@@ -1,5 +1,10 @@
 From: Reinhard Tartler <siretart@tauware.de>
-Description: Make it compile with trust-dns 0.21
+Date: Mon, 2 Jan 2023 15:59:50 -0500
+Subject: [PATCH] cargo: bump trust-dns-client and trust-dns-proto to 0.22
+Signed-off-by: Reinhard Tartler <siretart@tauware.de>
+Co-authored-by: Aditya R <arajan@redhat.com>
+Signed-off-by: Aditya R <arajan@redhat.com>
+Bug-Upstream: https://github.com/containers/aardvark-dns/pull/275
 
 Index: aardvark-dns/src/dns/coredns.rs
 ===================================================================
@@ -23,7 +28,7 @@ Index: aardvark-dns/src/dns/coredns.rs
      udp::{UdpClientStream, UdpStream},
 -    xfer::{dns_handle::DnsHandle, DnsRequest},
 -    BufStreamHandle,
-+    xfer::{dns_handle::DnsHandle, DnsRequest, BufDnsStreamHandle},
++    xfer::{dns_handle::DnsHandle, BufDnsStreamHandle, DnsRequest},
 +    DnsStreamHandle,
  };
  
@@ -34,11 +39,48 @@ Index: aardvark-dns/src/dns/coredns.rs
          let socket = UdpSocket::bind(format!("{}:{}", self.address, self.port)).await?;
 -        let (mut receiver, sender) = UdpStream::with_bound(socket);
 +        let address = SocketAddr::new(self.address, self.port.try_into().unwrap());
-+        let (mut receiver, sender) = UdpStream::with_bound(socket, address);
++        let (mut receiver, sender_original) = UdpStream::with_bound(socket, address);
  
          loop {
              tokio::select! {
-@@ -359,7 +362,7 @@ impl CoreDns {
+@@ -124,7 +127,8 @@ impl CoreDns {
+                         Ok(msg) => {
+                             let src_address = msg.addr();
+                             let mut dns_resolver = self.resolv_conf.clone();
+-                            let sender = sender.clone();
++                            let sender = sender_original.clone();
++                            let sender = sender.with_remote_addr(src_address);
+                             let (name, record_type, mut req) = match parse_dns_msg(msg) {
+                                 Some((name, record_type, req)) => (name, record_type, req),
+                                 _ => {
+@@ -212,7 +216,7 @@ impl CoreDns {
+                                                         .set_ttl(86400)
+                                                         .set_rr_type(RecordType::PTR)
+                                                         .set_dns_class(DNSClass::IN)
+-                                                        .set_rdata(RData::PTR(answer))
++                                                        .set_data(Some(RData::PTR(answer)))
+                                                         .clone(),
+                                                 );
+                                             }
+@@ -294,7 +298,7 @@ impl CoreDns {
+                                                     .set_ttl(86400)
+                                                     .set_rr_type(RecordType::A)
+                                                     .set_dns_class(DNSClass::IN)
+-                                                    .set_rdata(RData::A(ipv4))
++                                                    .set_data(Some(RData::A(ipv4)))
+                                                     .clone(),
+                                             );
+                                         }
+@@ -308,7 +312,7 @@ impl CoreDns {
+                                                     .set_ttl(86400)
+                                                     .set_rr_type(RecordType::AAAA)
+                                                     .set_dns_class(DNSClass::IN)
+-                                                    .set_rdata(RData::AAAA(ipv6))
++                                                    .set_data(Some(RData::AAAA(ipv6)))
+                                                     .clone(),
+                                             );
+                                         }
+@@ -359,7 +363,7 @@ impl CoreDns {
      }
  }
  
@@ -47,7 +89,16 @@ Index: aardvark-dns/src/dns/coredns.rs
      let id = msg.id();
      let mut msg_mut = msg.clone();
      msg_mut.set_message_type(MessageType::Response);
-@@ -417,8 +420,8 @@ async fn forward_dns_req(mut cl: AsyncCl
+@@ -399,7 +403,7 @@ fn parse_dns_msg(body: SerialMessage) ->
+                         format!("{} {} {}", q.name(), q.query_type(), q.query_class(),)
+                     })
+                     .unwrap_or_else(Default::default,),
+-                msg.edns().is_some(),
++                msg.extensions().is_some(),
+             );
+ 
+             debug!("parsed message {:?}", parsed_msg);
+@@ -417,21 +421,25 @@ async fn forward_dns_req(mut cl: AsyncCl
      let req = DnsRequest::new(message, Default::default());
      let id = req.id();
  
@@ -58,7 +109,15 @@ Index: aardvark-dns/src/dns/coredns.rs
              response.set_id(id);
              for answer in response.answers() {
                  debug!(
-@@ -432,6 +435,10 @@ async fn forward_dns_req(mut cl: AsyncCl
+-                    "{} {} {} {} => {}",
++                    "{} {} {} {} => {:#?}",
+                     id,
+                     answer.name().to_string(),
+                     answer.record_type(),
+                     answer.dns_class(),
+-                    answer.rdata(),
++                    answer.data(),
+                 );
              }
              Some(response.into())
          }
