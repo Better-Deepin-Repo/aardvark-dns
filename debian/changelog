@@ -1,3 +1,10 @@
+aardvark-dns (1.4.0-3) unstable; urgency=medium
+
+  [ Peter Green ]
+  * Depend on non-virtual package librust-clap-3+derive-dev, Closes: #1028648
+
+ -- Reinhard Tartler <siretart@tauware.de>  Sun, 15 Jan 2023 02:05:56 -0500
+
 aardvark-dns (1.4.0-2) unstable; urgency=medium
 
   * update dns-proto-server patch with upstream, verified to
