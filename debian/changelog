@@ -1,7 +1,8 @@
 aardvark-dns (1.4.0-4) unstable; urgency=medium
 
   [ Peter Green ]
-  * Remove upper limit from cargo dependency on async-broadcast.
+  * Remove upper limit from cargo dependency on async-broadcast, to fix FTBFS
+    Closes: #1038148
 
  -- Reinhard Tartler <siretart@tauware.de>  Sun, 18 Jun 2023 20:55:48 -0400
 
