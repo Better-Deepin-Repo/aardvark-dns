@@ -8,7 +8,7 @@ use signal_hook::iterator::Signals;
 use std::fs;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 
 use async_broadcast::broadcast;
@@ -28,7 +28,7 @@ pub fn create_pid(config_path: &str) -> Result<(), std::io::Error> {
     // before serving write its pid to _config_path so other process can notify
     // aardvark of data change.
     let path = Path::new(config_path).join(AARDVARK_PID_FILE);
-    let mut pid_file = match File::create(&path) {
+    let mut pid_file = match File::create(path) {
         Err(err) => {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -75,12 +75,6 @@ fn core_serve_loop(
         Ok((backend, listen_ip_v4, listen_ip_v6)) => {
             let mut thread_handles = vec![];
 
-            // we need mutex so we so threads can still modify lock
-            // clippy is only doing linting and asking us to use atomic bool
-            // so manually allow this
-            #[allow(clippy::mutex_atomic)]
-            let kill_switch = Arc::new(Mutex::new(false));
-
             // kill server if listen_ip's are empty
             if listen_ip_v4.is_empty() && listen_ip_v6.is_empty() {
                 //no configuration found kill the server
@@ -113,14 +107,12 @@ fn core_serve_loop(
                     let network_name_clone = network_name.clone();
                     let filter_search_domain_clone = filter_search_domain.to_owned();
                     let backend_arc_clone = shareable_arc.clone();
-                    let kill_switch_arc_clone = Arc::clone(&kill_switch);
                     let receiver = rx.clone();
                     let handle = thread::spawn(move || {
                         if let Err(_e) = start_dns_server(
                             &network_name_clone,
                             IpAddr::V4(ip),
                             backend_arc_clone,
-                            kill_switch_arc_clone,
                             port,
                             filter_search_domain_clone.to_string(),
                             receiver,
@@ -144,14 +136,12 @@ fn core_serve_loop(
                     let network_name_clone = network_name.clone();
                     let filter_search_domain_clone = filter_search_domain.to_owned();
                     let backend_arc_clone = shareable_arc.clone();
-                    let kill_switch_arc_clone = Arc::clone(&kill_switch);
                     let receiver = rx.clone();
                     let handle = thread::spawn(move || {
                         if let Err(_e) = start_dns_server(
                             &network_name_clone,
                             IpAddr::V6(ip),
                             backend_arc_clone,
-                            kill_switch_arc_clone,
                             port,
                             filter_search_domain_clone.to_string(),
                             receiver,
@@ -177,9 +167,6 @@ fn core_serve_loop(
 
             if handle_signal.join().is_ok() {
                 send_broadcast(&tx);
-                if let Ok(mut switch) = kill_switch.lock() {
-                    *switch = true;
-                };
             }
 
             for handle in thread_handles {
@@ -206,7 +193,6 @@ async fn start_dns_server(
     name: &str,
     addr: IpAddr,
     backend_arc: DNSBackendWithArc,
-    kill_switch: Arc<Mutex<bool>>,
     port: u32,
     filter_search_domain: String,
     rx: async_broadcast::Receiver<bool>,
@@ -219,7 +205,6 @@ async fn start_dns_server(
         forward,
         53_u16,
         backend_arc.backend,
-        kill_switch,
         filter_search_domain,
         rx,
     )

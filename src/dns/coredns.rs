@@ -1,23 +1,31 @@
 use crate::backend::DNSBackend;
 use crate::backend::DNSResult;
 use futures_util::StreamExt;
+use futures_util::TryStreamExt;
+use hickory_client::{client::AsyncClient, proto::xfer::SerialMessage, rr::rdata, rr::Name};
+use hickory_proto::{
+    op::{Message, MessageType, ResponseCode},
+    rr::{DNSClass, RData, Record, RecordType},
+    udp::{UdpClientStream, UdpStream},
+    xfer::{dns_handle::DnsHandle, BufDnsStreamHandle, DnsRequest},
+    DnsStreamHandle,
+};
 use log::{debug, error, trace, warn};
 use resolv_conf;
 use resolv_conf::ScopedIp;
+use std::convert::TryInto;
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::net::UdpSocket;
-use trust_dns_client::{client::AsyncClient, proto::xfer::SerialMessage, rr::Name};
-use trust_dns_proto::{
-    op::{Message, MessageType, ResponseCode},
-    rr::{DNSClass, RData, Record, RecordType},
-    udp::{UdpClientStream, UdpStream},
-    xfer::{dns_handle::DnsHandle, DnsRequest},
-    BufStreamHandle,
-};
+
+// Containers can be recreated with different ips quickly so
+// do not let the clients cache to dns response for to long,
+// aardvark-dns runs on the same host so caching is not that important.
+// see https://github.com/containers/netavark/discussions/644
+const CONTAINER_TTL: u32 = 60;
 
 pub struct CoreDns {
     name: Name,                          // name or origin
@@ -25,7 +33,6 @@ pub struct CoreDns {
     address: IpAddr,                     // server address
     port: u32,                           // server port
     backend: Arc<DNSBackend>,            // server's data store
-    kill_switch: Arc<Mutex<bool>>,       // global kill_switch
     filter_search_domain: String,        // filter_search_domain
     rx: async_broadcast::Receiver<bool>, // kill switch receiver
     resolv_conf: resolv_conf::Config,    // host's parsed /etc/resolv.conf
@@ -42,7 +49,6 @@ impl CoreDns {
         forward_addr: IpAddr,
         forward_port: u16,
         backend: Arc<DNSBackend>,
-        kill_switch: Arc<Mutex<bool>>,
         filter_search_domain: String,
         rx: async_broadcast::Receiver<bool>,
     ) -> anyhow::Result<Self> {
@@ -84,7 +90,6 @@ impl CoreDns {
             address,
             port,
             backend,
-            kill_switch,
             filter_search_domain,
             rx,
             resolv_conf,
@@ -100,11 +105,12 @@ impl CoreDns {
     async fn register_port(&mut self) -> anyhow::Result<()> {
         debug!("Starting listen on udp {:?}:{}", self.address, self.port);
 
-        let no_proxy: bool = matches!(env::var("AARDVARK_NO_PROXY"), Ok(_));
+        let no_proxy: bool = env::var("AARDVARK_NO_PROXY").is_ok();
 
         // Do we need to serve on tcp anywhere in future ?
         let socket = UdpSocket::bind(format!("{}:{}", self.address, self.port)).await?;
-        let (mut receiver, sender) = UdpStream::with_bound(socket);
+        let address = SocketAddr::new(self.address, self.port.try_into().unwrap());
+        let (mut receiver, sender_original) = UdpStream::with_bound(socket, address);
 
         loop {
             tokio::select! {
@@ -124,7 +130,7 @@ impl CoreDns {
                         Ok(msg) => {
                             let src_address = msg.addr();
                             let mut dns_resolver = self.resolv_conf.clone();
-                            let sender = sender.clone();
+                            let sender = sender_original.clone().with_remote_addr(src_address);
                             let (name, record_type, mut req) = match parse_dns_msg(msg) {
                                 Some((name, record_type, req)) => (name, record_type, req),
                                 _ => {
@@ -164,10 +170,6 @@ impl CoreDns {
                                 self.backend.name_mappings
                             );
                             trace!("server backend.ip_mappings: {:?}", self.backend.ip_mappings);
-                            trace!(
-                                 "server backend kill switch: {:?}",
-                                 self.kill_switch.lock().is_ok()
-                            );
 
 
                             // if record type is PTR try resolving early and return if record found
@@ -209,10 +211,10 @@ impl CoreDns {
                                             if let Ok(answer) = Name::from_ascii(format!("{}.", entry)) {
                                                 req_clone.add_answer(
                                                     Record::new()
-                                                        .set_ttl(86400)
+                                                        .set_ttl(CONTAINER_TTL)
                                                         .set_rr_type(RecordType::PTR)
                                                         .set_dns_class(DNSClass::IN)
-                                                        .set_rdata(RData::PTR(answer))
+                                                        .set_data(Some(RData::PTR(rdata::PTR(answer))))
                                                         .clone(),
                                                 );
                                             }
@@ -291,10 +293,10 @@ impl CoreDns {
                                             req.add_answer(
                                                 Record::new()
                                                     .set_name(record_name.clone())
-                                                    .set_ttl(86400)
+                                                    .set_ttl(CONTAINER_TTL)
                                                     .set_rr_type(RecordType::A)
                                                     .set_dns_class(DNSClass::IN)
-                                                    .set_rdata(RData::A(ipv4))
+                                                    .set_data(Some(RData::A(rdata::A(ipv4))))
                                                     .clone(),
                                             );
                                         }
@@ -305,10 +307,10 @@ impl CoreDns {
                                             req.add_answer(
                                                 Record::new()
                                                     .set_name(record_name.clone())
-                                                    .set_ttl(86400)
+                                                    .set_ttl(CONTAINER_TTL)
                                                     .set_rr_type(RecordType::AAAA)
                                                     .set_dns_class(DNSClass::IN)
-                                                    .set_rdata(RData::AAAA(ipv6))
+                                                    .set_data(Some(RData::AAAA(rdata::AAAA(ipv6))))
                                                     .clone(),
                                             );
                                         }
@@ -334,7 +336,7 @@ impl CoreDns {
                                             ));
 
                                             if let Ok((cl, req_sender)) = AsyncClient::connect(connection).await {
-                                                let _ = tokio::spawn(req_sender);
+                                                tokio::spawn(req_sender);
                                                 if let Some(resp) = forward_dns_req(cl, req.clone()).await {
                                                     if reply(sender.clone(), src_address, &resp).is_some() {
                                                         // request resolved from following resolver so
@@ -359,7 +361,7 @@ impl CoreDns {
     }
 }
 
-fn reply(mut sender: BufStreamHandle, socket_addr: SocketAddr, msg: &Message) -> Option<()> {
+fn reply(mut sender: BufDnsStreamHandle, socket_addr: SocketAddr, msg: &Message) -> Option<()> {
     let id = msg.id();
     let mut msg_mut = msg.clone();
     msg_mut.set_message_type(MessageType::Response);
@@ -399,7 +401,7 @@ fn parse_dns_msg(body: SerialMessage) -> Option<(String, RecordType, Message)> {
                         format!("{} {} {}", q.name(), q.query_type(), q.query_class(),)
                     })
                     .unwrap_or_else(Default::default,),
-                msg.edns().is_some(),
+                msg.extensions().is_some(),
             );
 
             debug!("parsed message {:?}", parsed_msg);
@@ -413,24 +415,29 @@ fn parse_dns_msg(body: SerialMessage) -> Option<(String, RecordType, Message)> {
     }
 }
 
-async fn forward_dns_req(mut cl: AsyncClient, message: Message) -> Option<Message> {
+async fn forward_dns_req(cl: AsyncClient, message: Message) -> Option<Message> {
     let req = DnsRequest::new(message, Default::default());
     let id = req.id();
 
-    match cl.send(req).await {
-        Ok(mut response) => {
-            response.set_id(id);
+    match cl.send(req).try_next().await {
+        Ok(Some(response)) => {
             for answer in response.answers() {
                 debug!(
-                    "{} {} {} {} => {}",
+                    "{} {} {} {} => {:#?}",
                     id,
                     answer.name().to_string(),
                     answer.record_type(),
                     answer.dns_class(),
-                    answer.rdata(),
+                    answer.data(),
                 );
             }
-            Some(response.into())
+            let mut response_message = response.into_message();
+            response_message.set_id(id);
+            Some(response_message)
+        }
+        Ok(None) => {
+            error!("{} dns request got empty response", id);
+            None
         }
         Err(e) => {
             error!("{} dns request failed: {}", id, e);
