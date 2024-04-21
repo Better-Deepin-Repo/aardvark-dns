@@ -1,9 +1,11 @@
 use crate::backend::DNSBackend;
 use crate::backend::DNSResult;
 use futures_util::StreamExt;
+use futures_util::TryStreamExt;
 use log::{debug, error, trace, warn};
 use resolv_conf;
 use resolv_conf::ScopedIp;
+use std::convert::TryInto;
 use std::env;
 use std::fs::File;
 use std::io::Read;
@@ -15,9 +17,15 @@ use trust_dns_proto::{
     op::{Message, MessageType, ResponseCode},
     rr::{DNSClass, RData, Record, RecordType},
     udp::{UdpClientStream, UdpStream},
-    xfer::{dns_handle::DnsHandle, DnsRequest},
-    BufStreamHandle,
+    xfer::{dns_handle::DnsHandle, BufDnsStreamHandle, DnsRequest},
+    DnsStreamHandle,
 };
+
+// Containers can be recreated with different ips quickly so
+// do not let the clients cache to dns response for to long,
+// aardvark-dns runs on the same host so caching is not that important.
+// see https://github.com/containers/netavark/discussions/644
+const CONTAINER_TTL: u32 = 60;
 
 pub struct CoreDns {
     name: Name,                          // name or origin
@@ -104,7 +112,8 @@ impl CoreDns {
 
         // Do we need to serve on tcp anywhere in future ?
         let socket = UdpSocket::bind(format!("{}:{}", self.address, self.port)).await?;
-        let (mut receiver, sender) = UdpStream::with_bound(socket);
+        let address = SocketAddr::new(self.address, self.port.try_into().unwrap());
+        let (mut receiver, sender_original) = UdpStream::with_bound(socket, address);
 
         loop {
             tokio::select! {
@@ -124,7 +133,7 @@ impl CoreDns {
                         Ok(msg) => {
                             let src_address = msg.addr();
                             let mut dns_resolver = self.resolv_conf.clone();
-                            let sender = sender.clone();
+                            let sender = sender_original.clone().with_remote_addr(src_address);
                             let (name, record_type, mut req) = match parse_dns_msg(msg) {
                                 Some((name, record_type, req)) => (name, record_type, req),
                                 _ => {
@@ -209,10 +218,10 @@ impl CoreDns {
                                             if let Ok(answer) = Name::from_ascii(format!("{}.", entry)) {
                                                 req_clone.add_answer(
                                                     Record::new()
-                                                        .set_ttl(86400)
+                                                        .set_ttl(CONTAINER_TTL)
                                                         .set_rr_type(RecordType::PTR)
                                                         .set_dns_class(DNSClass::IN)
-                                                        .set_rdata(RData::PTR(answer))
+                                                        .set_data(Some(RData::PTR(answer)))
                                                         .clone(),
                                                 );
                                             }
@@ -291,10 +300,10 @@ impl CoreDns {
                                             req.add_answer(
                                                 Record::new()
                                                     .set_name(record_name.clone())
-                                                    .set_ttl(86400)
+                                                    .set_ttl(CONTAINER_TTL)
                                                     .set_rr_type(RecordType::A)
                                                     .set_dns_class(DNSClass::IN)
-                                                    .set_rdata(RData::A(ipv4))
+                                                    .set_data(Some(RData::A(ipv4)))
                                                     .clone(),
                                             );
                                         }
@@ -305,10 +314,10 @@ impl CoreDns {
                                             req.add_answer(
                                                 Record::new()
                                                     .set_name(record_name.clone())
-                                                    .set_ttl(86400)
+                                                    .set_ttl(CONTAINER_TTL)
                                                     .set_rr_type(RecordType::AAAA)
                                                     .set_dns_class(DNSClass::IN)
-                                                    .set_rdata(RData::AAAA(ipv6))
+                                                    .set_data(Some(RData::AAAA(ipv6)))
                                                     .clone(),
                                             );
                                         }
@@ -334,7 +343,7 @@ impl CoreDns {
                                             ));
 
                                             if let Ok((cl, req_sender)) = AsyncClient::connect(connection).await {
-                                                let _ = tokio::spawn(req_sender);
+                                                tokio::spawn(req_sender);
                                                 if let Some(resp) = forward_dns_req(cl, req.clone()).await {
                                                     if reply(sender.clone(), src_address, &resp).is_some() {
                                                         // request resolved from following resolver so
@@ -359,7 +368,7 @@ impl CoreDns {
     }
 }
 
-fn reply(mut sender: BufStreamHandle, socket_addr: SocketAddr, msg: &Message) -> Option<()> {
+fn reply(mut sender: BufDnsStreamHandle, socket_addr: SocketAddr, msg: &Message) -> Option<()> {
     let id = msg.id();
     let mut msg_mut = msg.clone();
     msg_mut.set_message_type(MessageType::Response);
@@ -399,7 +408,7 @@ fn parse_dns_msg(body: SerialMessage) -> Option<(String, RecordType, Message)> {
                         format!("{} {} {}", q.name(), q.query_type(), q.query_class(),)
                     })
                     .unwrap_or_else(Default::default,),
-                msg.edns().is_some(),
+                msg.extensions().is_some(),
             );
 
             debug!("parsed message {:?}", parsed_msg);
@@ -417,20 +426,24 @@ async fn forward_dns_req(mut cl: AsyncClient, message: Message) -> Option<Messag
     let req = DnsRequest::new(message, Default::default());
     let id = req.id();
 
-    match cl.send(req).await {
-        Ok(mut response) => {
+    match cl.send(req).try_next().await {
+        Ok(Some(mut response)) => {
             response.set_id(id);
             for answer in response.answers() {
                 debug!(
-                    "{} {} {} {} => {}",
+                    "{} {} {} {} => {:#?}",
                     id,
                     answer.name().to_string(),
                     answer.record_type(),
                     answer.dns_class(),
-                    answer.rdata(),
+                    answer.data(),
                 );
             }
             Some(response.into())
+        }
+        Ok(None) => {
+            error!("{} dns request got empty response", id);
+            None
         }
         Err(e) => {
             error!("{} dns request failed: {}", id, e);
