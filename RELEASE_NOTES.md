@@ -1,20 +1,5 @@
 # Release Notes
 
-## v1.10.0
-* removed unused kill switch
-* updated dependencies
-
-## v1.9.0
-* update trust-dns to hickory
-* never report an error when the syslog init fails
-* dependency updates
-
-## v1.8.0
-* dependency updates
-
-## v1.7.0
-* dependency updates
-
 ## v1.6.0
 * dependency updates
 * lower the TTL to 60s for container names
