@@ -1,3 +1,9 @@
+aardvark-dns (1.6.0-1) unstable; urgency=medium
+
+  * New upstream version
+
+ -- Reinhard Tartler <siretart@tauware.de>  Sun, 21 Apr 2024 07:53:38 -0400
+
 aardvark-dns (1.4.0-5) unstable; urgency=medium
 
   * Build against clap version 4, Closes: #1040876, #1040877
