@@ -1,3 +1,10 @@
+aardvark-dns (1.4.0-6) unstable; urgency=medium
+
+  * debian/control: correct URLs
+  * Fix test failure with rustc 1.72, Closes: #1073399
+
+ -- Reinhard Tartler <siretart@tauware.de>  Tue, 25 Jun 2024 09:28:03 -0400
+
 aardvark-dns (1.4.0-5.1) unstable; urgency=medium
 
   * Non-maintainer upload.
