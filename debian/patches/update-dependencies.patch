@@ -25,7 +25,7 @@ Index: aardvark-dns/Cargo.toml
 +async-broadcast = ">= 0.4.1"
  resolv-conf = "0.7.0"
 -nix = "0.25.0"
-+nix = "0.26"
++nix = { version = ">= 0.25.0", features = ["fs", "signal"] }
  libc = "0.2"
  
  [build-dependencies]

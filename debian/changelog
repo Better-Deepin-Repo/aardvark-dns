@@ -1,3 +1,12 @@
+aardvark-dns (1.4.0-5.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Relax cargo dependency on nix to support 0.27 and explicitly enable
+    required features, since nix no longer enables any features by default.
+    (Closes: #1064479)
+
+ -- Peter Michael Green <plugwash@debian.org>  Thu, 02 May 2024 16:14:54 +0000
+
 aardvark-dns (1.4.0-5) unstable; urgency=medium
 
   * Build against clap version 4, Closes: #1040876, #1040877
