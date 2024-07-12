@@ -1,8 +1,8 @@
-aardvark-dns (1.6.0-2) experimental; urgency=medium
+aardvark-dns (1.6.0-2) unstable; urgency=medium
 
   * Fix test failure with rustc 1.72, Closes: #1073399
 
- -- Reinhard Tartler <siretart@tauware.de>  Tue, 25 Jun 2024 09:02:29 -0400
+ -- Reinhard Tartler <siretart@tauware.de>  Fri, 12 Jul 2024 08:49:05 -0400
 
 aardvark-dns (1.6.0-1) experimental; urgency=medium
 
