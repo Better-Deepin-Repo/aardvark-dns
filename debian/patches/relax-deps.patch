@@ -1,0 +1,32 @@
+From: Reinhard Tartler <siretart@tauware.de>
+Date: Sat, 13 Jul 2024 08:22:13 -0400
+Subject: Relax dependencies
+
+---
+ Cargo.toml | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index e872b10..ad0adde 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -22,8 +22,8 @@ platforms = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "powerpc64
+ # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+ 
+ [dependencies]
+-clap = { version = "~4.3.24", features = ["derive"] }
+-syslog = "^6.1.0"
++clap = { version = ">= 4.3", features = ["derive"] }
++syslog = { version = ">= 6.0" }
+ log = "0.4.20"
+ hickory-server = "0.24.0"
+ hickory-proto = "0.24.0"
+@@ -32,7 +32,7 @@ anyhow = "1.0.75"
+ futures-util = { version = "0.3.29", default-features = false }
+ signal-hook = "0.3.17"
+ tokio = { version = "1.34.0", features = ["macros", "rt-multi-thread", "net"] }
+-async-broadcast = "0.6.0"
++async-broadcast = { version = ">= 0.5" }
+ resolv-conf = "0.7.0"
+ nix = { version = "0.27.1", features = ["fs", "signal"] }
+ libc = "0.2"
