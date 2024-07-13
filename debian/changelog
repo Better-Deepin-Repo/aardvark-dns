@@ -1,6 +1,7 @@
 aardvark-dns (1.9.0-1) experimental; urgency=medium
 
   * New upstream release: 1.9.0
+  * Compile against hickory-server (instead trust-dns)
 
  -- Reinhard Tartler <siretart@tauware.de>  Sat, 13 Jul 2024 08:17:26 -0400
 
