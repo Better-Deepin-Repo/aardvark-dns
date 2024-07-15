@@ -1,3 +1,9 @@
+aardvark-dns (1.6.0-3) unstable; urgency=medium
+
+  * Compile against async-broadcast 0.7, Closes: #1076357
+
+ -- Reinhard Tartler <siretart@tauware.de>  Sun, 14 Jul 2024 23:42:04 -0400
+
 aardvark-dns (1.6.0-2) unstable; urgency=medium
 
   * Fix test failure with rustc 1.72, Closes: #1073399
