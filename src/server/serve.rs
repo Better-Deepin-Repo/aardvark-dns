@@ -1,28 +1,43 @@
 use crate::backend::DNSBackend;
-use crate::config;
 use crate::config::constants::AARDVARK_PID_FILE;
+use crate::config::parse_configs;
 use crate::dns::coredns::CoreDns;
+use crate::error::AardvarkError;
+use crate::error::AardvarkErrorList;
+use crate::error::AardvarkResult;
+use crate::error::AardvarkWrap;
+use arc_swap::ArcSwap;
 use log::{debug, error, info};
-use signal_hook::consts::signal::SIGHUP;
-use signal_hook::iterator::Signals;
+use nix::unistd;
+use nix::unistd::dup2;
+use resolv_conf::ScopedIp;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::env;
 use std::fs;
+use std::fs::OpenOptions;
+use std::hash::Hash;
+use std::io::Error;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::net::Ipv6Addr;
+use std::net::SocketAddr;
+use std::os::fd::AsRawFd;
+use std::os::fd::OwnedFd;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use tokio::net::{TcpListener, UdpSocket};
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::task::JoinHandle;
 
-use async_broadcast::broadcast;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::process;
 
-// Will be only used by server to share backend
-// across threads
-#[derive(Clone)]
-struct DNSBackendWithArc {
-    pub backend: Arc<DNSBackend>,
-}
+type ThreadHandleMap<Ip> =
+    HashMap<(String, Ip), (flume::Sender<()>, JoinHandle<AardvarkResult<()>>)>;
 
 pub fn create_pid(config_path: &str) -> Result<(), std::io::Error> {
     // before serving write its pid to _config_path so other process can notify
@@ -49,199 +64,319 @@ pub fn create_pid(config_path: &str) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-pub fn serve(
-    config_path: &str,
-    port: u32,
-    filter_search_domain: &str,
-) -> Result<(), std::io::Error> {
-    loop {
-        if let Err(er) = core_serve_loop(config_path, port, filter_search_domain) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Server Error {}", er),
-            ));
-        }
-    }
-}
-
-fn core_serve_loop(
-    config_path: &str,
-    port: u32,
-    filter_search_domain: &str,
-) -> Result<(), std::io::Error> {
-    let mut signals = Signals::new([SIGHUP])?;
-
-    match config::parse_configs(config_path) {
-        Ok((backend, listen_ip_v4, listen_ip_v6)) => {
-            let mut thread_handles = vec![];
-
-            // we need mutex so we so threads can still modify lock
-            // clippy is only doing linting and asking us to use atomic bool
-            // so manually allow this
-            #[allow(clippy::mutex_atomic)]
-            let kill_switch = Arc::new(Mutex::new(false));
-
-            // kill server if listen_ip's are empty
-            if listen_ip_v4.is_empty() && listen_ip_v6.is_empty() {
-                //no configuration found kill the server
-                info!("No configuration found stopping the sever");
-                let path = Path::new(config_path).join(AARDVARK_PID_FILE);
-                match fs::remove_file(path) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        error!("failed to remove the pid file: {}", &err);
-                        process::exit(1);
-                    }
-                }
-                process::exit(0);
-            }
-
-            // Prevent memory duplication: since backend is immutable across threads so create Arc and share
-            let shareable_arc = DNSBackendWithArc {
-                backend: Arc::from(backend),
-            };
-
-            debug!("Successfully parsed config");
-            debug!("Listen v4 ip {:?}", listen_ip_v4);
-            debug!("Listen v6 ip {:?}", listen_ip_v6);
-
-            // create a receiver and sender for async broadcast channel
-            let (tx, rx) = broadcast(1000);
-
-            for (network_name, listen_ip_list) in listen_ip_v4 {
-                for ip in listen_ip_list {
-                    let network_name_clone = network_name.clone();
-                    let filter_search_domain_clone = filter_search_domain.to_owned();
-                    let backend_arc_clone = shareable_arc.clone();
-                    let kill_switch_arc_clone = Arc::clone(&kill_switch);
-                    let receiver = rx.clone();
-                    let handle = thread::spawn(move || {
-                        if let Err(_e) = start_dns_server(
-                            &network_name_clone,
-                            IpAddr::V4(ip),
-                            backend_arc_clone,
-                            kill_switch_arc_clone,
-                            port,
-                            filter_search_domain_clone.to_string(),
-                            receiver,
-                        ) {
-                            error!("Unable to start server {}", _e);
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("Error while invoking start_dns_server: {}", _e),
-                            ));
-                        }
-
-                        Ok(())
-                    });
-
-                    thread_handles.push(handle);
-                }
-            }
-
-            for (network_name, listen_ip_list) in listen_ip_v6 {
-                for ip in listen_ip_list {
-                    let network_name_clone = network_name.clone();
-                    let filter_search_domain_clone = filter_search_domain.to_owned();
-                    let backend_arc_clone = shareable_arc.clone();
-                    let kill_switch_arc_clone = Arc::clone(&kill_switch);
-                    let receiver = rx.clone();
-                    let handle = thread::spawn(move || {
-                        if let Err(_e) = start_dns_server(
-                            &network_name_clone,
-                            IpAddr::V6(ip),
-                            backend_arc_clone,
-                            kill_switch_arc_clone,
-                            port,
-                            filter_search_domain_clone.to_string(),
-                            receiver,
-                        ) {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("Error while invoking start_dns_server: {}", _e),
-                            ));
-                        }
-
-                        Ok(())
-                    });
-
-                    thread_handles.push(handle);
-                }
-            }
-
-            let handle_signal = thread::spawn(move || {
-                if let Some(sig) = signals.forever().next() {
-                    info!("Received SIGHUP will refresh servers: {:?}", sig);
-                }
-            });
-
-            if handle_signal.join().is_ok() {
-                send_broadcast(&tx);
-                if let Ok(mut switch) = kill_switch.lock() {
-                    *switch = true;
-                };
-            }
-
-            for handle in thread_handles {
-                if let Err(e) = handle.join() {
-                    error!("Error from thread: {:?}", e);
-                }
-            }
-
-            // close and drop broadcast channel
-            tx.close();
-            drop(tx);
-
-            Ok(())
-        }
-        Err(e) => Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unable to parse config: {}", e),
-        )),
-    }
-}
-
 #[tokio::main]
-async fn start_dns_server(
-    name: &str,
-    addr: IpAddr,
-    backend_arc: DNSBackendWithArc,
-    kill_switch: Arc<Mutex<bool>>,
-    port: u32,
-    filter_search_domain: String,
-    rx: async_broadcast::Receiver<bool>,
-) -> Result<(), std::io::Error> {
-    let forward: IpAddr = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
-    match CoreDns::new(
-        addr,
+pub async fn serve(
+    config_path: &str,
+    port: u16,
+    filter_search_domain: &str,
+    ready: OwnedFd,
+) -> AardvarkResult<()> {
+    let mut signals = signal(SignalKind::hangup())?;
+    let no_proxy: bool = env::var("AARDVARK_NO_PROXY").is_ok();
+
+    let mut handles_v4 = HashMap::new();
+    let mut handles_v6 = HashMap::new();
+    let nameservers = Arc::new(Mutex::new(Vec::new()));
+
+    read_config_and_spawn(
+        config_path,
         port,
-        name,
-        forward,
-        53_u16,
-        backend_arc.backend,
-        kill_switch,
         filter_search_domain,
-        rx,
+        &mut handles_v4,
+        &mut handles_v6,
+        nameservers.clone(),
+        no_proxy,
+    )
+    .await?;
+    // We are ready now, this is far from perfect we should at least wait for the first bind
+    // to work but this is not really possible with the current code flow and needs more changes.
+    daemonize()?;
+    let msg: [u8; 1] = [b'1'];
+    unistd::write(&ready, &msg)?;
+    drop(ready);
+
+    loop {
+        // Block until we receive a SIGHUP.
+        signals.recv().await;
+        debug!("Received SIGHUP");
+        if let Err(e) = read_config_and_spawn(
+            config_path,
+            port,
+            filter_search_domain,
+            &mut handles_v4,
+            &mut handles_v6,
+            nameservers.clone(),
+            no_proxy,
+        )
+        .await
+        {
+            // do not exit here, we just keep running even if something failed
+            error!("{e}");
+        };
+    }
+}
+
+/// # Ensure the expected DNS server threads are running
+///
+/// Stop threads corresponding to listen IPs no longer in the configuration and start threads
+/// corresponding to listen IPs that were added.
+async fn stop_and_start_threads<Ip>(
+    port: u16,
+    backend: &'static ArcSwap<DNSBackend>,
+    listen_ips: HashMap<String, Vec<Ip>>,
+    thread_handles: &mut ThreadHandleMap<Ip>,
+    no_proxy: bool,
+    nameservers: Arc<Mutex<Vec<ScopedIp>>>,
+) -> AardvarkResult<()>
+where
+    Ip: Eq + Hash + Copy + Into<IpAddr> + Send + 'static,
+{
+    let mut expected_threads = HashSet::new();
+    for (network_name, listen_ip_list) in listen_ips {
+        for ip in listen_ip_list {
+            expected_threads.insert((network_name.clone(), ip));
+        }
+    }
+
+    // First we shut down any old threads that should no longer be running.  This should be
+    // done before starting new ones in case a listen IP was moved from being under one network
+    // name to another.
+    let to_shut_down: Vec<_> = thread_handles
+        .keys()
+        .filter(|k| !expected_threads.contains(k))
+        .cloned()
+        .collect();
+    stop_threads(thread_handles, Some(to_shut_down)).await;
+
+    // Then we start any new threads.
+    let to_start: Vec<_> = expected_threads
+        .iter()
+        .filter(|k| !thread_handles.contains_key(*k))
+        .cloned()
+        .collect();
+
+    let mut errors = AardvarkErrorList::new();
+
+    for (network_name, ip) in to_start {
+        let (shutdown_tx, shutdown_rx) = flume::bounded(0);
+        let network_name_ = network_name.clone();
+        let ns = nameservers.clone();
+        let addr = SocketAddr::new(ip.into(), port);
+        let udp_sock = match UdpSocket::bind(addr).await {
+            Ok(s) => s,
+            Err(err) => {
+                errors.push(AardvarkError::wrap(
+                    format!("failed to bind udp listener on {addr}"),
+                    err.into(),
+                ));
+                continue;
+            }
+        };
+
+        let tcp_sock = match TcpListener::bind(addr).await {
+            Ok(s) => s,
+            Err(err) => {
+                errors.push(AardvarkError::wrap(
+                    format!("failed to bind tcp listener on {addr}"),
+                    err.into(),
+                ));
+                continue;
+            }
+        };
+
+        let handle = tokio::spawn(async move {
+            start_dns_server(
+                network_name_,
+                udp_sock,
+                tcp_sock,
+                backend,
+                shutdown_rx,
+                no_proxy,
+                ns,
+            )
+            .await
+        });
+
+        thread_handles.insert((network_name, ip), (shutdown_tx, handle));
+    }
+
+    if errors.is_empty() {
+        return Ok(());
+    }
+
+    Err(AardvarkError::List(errors))
+}
+
+/// # Stop DNS server threads
+///
+/// If the `filter` parameter is `Some` only threads in the filter `Vec` will be stopped.
+async fn stop_threads<Ip>(
+    thread_handles: &mut ThreadHandleMap<Ip>,
+    filter: Option<Vec<(String, Ip)>>,
+) where
+    Ip: Eq + Hash + Copy,
+{
+    let mut handles = Vec::new();
+
+    let to_shut_down: Vec<_> = filter.unwrap_or_else(|| thread_handles.keys().cloned().collect());
+
+    for key in to_shut_down {
+        let (tx, handle) = thread_handles.remove(&key).unwrap();
+        handles.push(handle);
+        drop(tx);
+    }
+
+    for handle in handles {
+        match handle.await {
+            Ok(res) => {
+                // result returned by the future, i.e. that actual
+                // result from start_dns_server()
+                if let Err(e) = res {
+                    error!("Error from dns server: {}", e)
+                }
+            }
+            // error from tokio itself
+            Err(e) => error!("Error from dns server task: {}", e),
+        }
+    }
+}
+
+async fn start_dns_server(
+    name: String,
+    udp_socket: UdpSocket,
+    tcp_socket: TcpListener,
+    backend: &'static ArcSwap<DNSBackend>,
+    rx: flume::Receiver<()>,
+    no_proxy: bool,
+    nameservers: Arc<Mutex<Vec<ScopedIp>>>,
+) -> AardvarkResult<()> {
+    let server = CoreDns::new(name, backend, rx, no_proxy, nameservers);
+    server
+        .run(udp_socket, tcp_socket)
+        .await
+        .wrap("run dns server")
+}
+
+async fn read_config_and_spawn(
+    config_path: &str,
+    port: u16,
+    filter_search_domain: &str,
+    handles_v4: &mut ThreadHandleMap<Ipv4Addr>,
+    handles_v6: &mut ThreadHandleMap<Ipv6Addr>,
+    nameservers: Arc<Mutex<Vec<ScopedIp>>>,
+    no_proxy: bool,
+) -> AardvarkResult<()> {
+    let (conf, listen_ip_v4, listen_ip_v6) =
+        parse_configs(config_path, filter_search_domain).wrap("unable to parse config")?;
+
+    // We store the `DNSBackend` in an `ArcSwap` so we can replace it when the configuration is
+    // reloaded.
+    static DNSBACKEND: OnceLock<ArcSwap<DNSBackend>> = OnceLock::new();
+    let backend = match DNSBACKEND.get() {
+        Some(b) => {
+            b.store(Arc::new(conf));
+            b
+        }
+        None => DNSBACKEND.get_or_init(|| ArcSwap::from(Arc::new(conf))),
+    };
+
+    debug!("Successfully parsed config");
+    debug!("Listen v4 ip {:?}", listen_ip_v4);
+    debug!("Listen v6 ip {:?}", listen_ip_v6);
+
+    // kill server if listen_ip's are empty
+    if listen_ip_v4.is_empty() && listen_ip_v6.is_empty() {
+        info!("No configuration found stopping the sever");
+
+        let path = Path::new(config_path).join(AARDVARK_PID_FILE);
+        if let Err(err) = fs::remove_file(path) {
+            error!("failed to remove the pid file: {}", &err);
+            process::exit(1);
+        }
+
+        // Gracefully stop all server threads first.
+        stop_threads(handles_v4, None).await;
+        stop_threads(handles_v6, None).await;
+
+        process::exit(0);
+    }
+
+    let mut errors = AardvarkErrorList::new();
+
+    // get host nameservers
+    let upstream_resolvers = match get_upstream_resolvers() {
+        Ok(ns) => ns,
+        Err(err) => {
+            errors.push(AardvarkError::wrap(
+                "failed to get upstream nameservers, dns forwarding will not work",
+                err,
+            ));
+            Vec::new()
+        }
+    };
+
+    {
+        // use new scope to only lock for a short time
+        *nameservers.lock().expect("lock nameservers") = upstream_resolvers;
+    }
+
+    if let Err(err) = stop_and_start_threads(
+        port,
+        backend,
+        listen_ip_v4,
+        handles_v4,
+        no_proxy,
+        nameservers.clone(),
     )
     .await
     {
-        Ok(mut server) => match server.run().await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("unable to start CoreDns server: {}", e),
-            )),
-        },
-        Err(e) => Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unable to create CoreDns server: {}", e),
-        )),
+        errors.push(err)
+    };
+
+    if let Err(err) = stop_and_start_threads(
+        port,
+        backend,
+        listen_ip_v6,
+        handles_v6,
+        no_proxy,
+        nameservers,
+    )
+    .await
+    {
+        errors.push(err)
+    };
+
+    if errors.is_empty() {
+        return Ok(());
     }
+
+    Err(AardvarkError::List(errors))
 }
 
-#[tokio::main]
-async fn send_broadcast(tx: &async_broadcast::Sender<bool>) {
-    if let Err(e) = tx.broadcast(true).await {
-        error!("unable to broadcast to child threads: {:?}", e);
-    }
+// creates new session and put /dev/null on the stdio streams
+fn daemonize() -> Result<(), Error> {
+    // remove any controlling terminals
+    // but don't hardstop if this fails
+    let _ = unsafe { libc::setsid() }; // check https://docs.rs/libc
+                                       // close fds -> stdout, stdin and stderr
+    let dev_null = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/null")
+        .map_err(|e| std::io::Error::new(e.kind(), format!("/dev/null: {:#}", e)))?;
+    // redirect stdout, stdin and stderr to /dev/null
+    let fd = dev_null.as_raw_fd();
+    let _ = dup2(fd, 0);
+    let _ = dup2(fd, 1);
+    let _ = dup2(fd, 2);
+    Ok(())
+}
+
+// read /etc/resolv.conf and return all nameservers
+fn get_upstream_resolvers() -> AardvarkResult<Vec<ScopedIp>> {
+    let mut f = File::open("/etc/resolv.conf").wrap("open resolv.conf")?;
+    let mut buf = Vec::with_capacity(4096);
+    f.read_to_end(&mut buf).wrap("read resolv.conf")?;
+    let conf = resolv_conf::Config::parse(buf)?;
+    Ok(conf.nameservers)
 }

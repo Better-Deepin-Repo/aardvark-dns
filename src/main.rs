@@ -15,7 +15,7 @@ struct Opts {
     config: Option<String>,
     /// Host port for aardvark servers, defaults to 5533
     #[clap(short, long)]
-    port: Option<u32>,
+    port: Option<u16>,
     /// Filters search domain for backward compatiblity with dnsname/dnsmasq
     #[clap(short, long)]
     filter_search_domain: Option<String>,
@@ -44,7 +44,7 @@ fn main() {
         Ok(val) => match Level::from_str(&val) {
             Ok(level) => level,
             Err(e) => {
-                eprintln!("aardvark-dns: failed to parse RUST_LOG level: {}", e);
+                eprintln!("failed to parse RUST_LOG level: {}", e);
                 Level::Info
             }
         },
@@ -58,14 +58,14 @@ fn main() {
         if let Err(e) = log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
             .map(|()| log::set_max_level(log_level.to_level_filter()))
         {
-            eprintln!("aardvark-dns: failed to initialize syslog logger: {}", e)
+            eprintln!("failed to initialize syslog logger: {}", e)
         };
     }
 
     let opts = Opts::parse();
 
     let dir = opts.config.unwrap_or_else(|| String::from("/dev/stdin"));
-    let port = opts.port.unwrap_or(5533_u32);
+    let port = opts.port.unwrap_or(5533_u16);
     let filter_search_domain = opts
         .filter_search_domain
         .unwrap_or_else(|| String::from(".dns.podman"));
@@ -77,7 +77,7 @@ fn main() {
     match result {
         Ok(_) => {}
         Err(err) => {
-            eprintln!("aardvark-dns: {}", err);
+            eprintln!("{err}");
             std::process::exit(1);
         }
     }
