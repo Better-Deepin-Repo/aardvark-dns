@@ -2,27 +2,27 @@ Source: aardvark-dns
 Section: net
 Priority: optional
 Maintainer: Reinhard Tartler <siretart@tauware.de>
-Build-Depends: debhelper-compat (= 13),
- dh-cargo (>= 25),
- cargo:native <!nocheck>,
- librust-anyhow-dev,
- librust-async-broadcast-dev,
- librust-chrono-dev,
- librust-clap-4+derive-dev,
- librust-futures-util-dev,
- librust-nix-dev,
- librust-resolv-conf-dev,
- librust-signal-hook-dev,
- librust-strsim-dev,
- librust-syslog-dev,
- librust-termcolor-dev,
- librust-textwrap-dev,
- librust-tokio+full-dev,
- librust-hickory-client-dev,
- librust-hickory-proto-dev,
- librust-hickory-server-dev,
- libstd-rust-dev <!nocheck>,
- rustc:native <!nocheck>,
+Build-Depends: cargo:native <!nocheck>,
+               debhelper-compat (= 13),
+               dh-cargo (>= 25),
+               librust-anyhow-dev,
+               librust-async-broadcast-dev,
+               librust-chrono-dev,
+               librust-clap-4+derive-dev,
+               librust-futures-util-dev,
+               librust-hickory-client-dev,
+               librust-hickory-proto-dev,
+               librust-hickory-server-dev,
+               librust-nix-dev,
+               librust-resolv-conf-dev,
+               librust-signal-hook-dev,
+               librust-strsim-dev,
+               librust-syslog-dev,
+               librust-termcolor-dev,
+               librust-textwrap-dev,
+               librust-tokio+full-dev,
+               libstd-rust-dev <!nocheck>,
+               rustc:native <!nocheck>
 Standards-Version: 4.6.1
 Homepage: https://github.com/containers/aardvark-dns
 Vcs-Browser: https://salsa.debian.org/debian/aardvark-dns
@@ -31,7 +31,7 @@ Rules-Requires-Root: no
 
 Package: aardvark-dns
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, netavark (>> 1.6)
+Depends: netavark (>> 1.6), ${misc:Depends}, ${shlibs:Depends}
 Enhances: podman
 Description: Container-focused DNS server
  Netavark is designed to work with podman but is also applicable for other OCI
