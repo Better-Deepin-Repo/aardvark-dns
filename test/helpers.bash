@@ -247,7 +247,7 @@ function random_string() {
 # if "6" is given as first argument it will return a "fdx:x:x:x::/64" ipv6 subnet
 function random_subnet() {
     if [[ "$1" == "6" ]]; then
-        printf "fd%x:%x:%x:%x::/64" $((RANDOM % 256)) $((RANDOM % 65535)) $((RANDOM % 65535)) $((RANDOM % 65535))
+        printf "fd%02x:%x:%x:%x::/64" $((RANDOM % 256)) $((RANDOM % 65535)) $((RANDOM % 65535)) $((RANDOM % 65535))
     else
         printf "10.%d.%d.0/24" $((RANDOM % 256)) $((RANDOM % 256))
     fi
@@ -262,15 +262,23 @@ function random_ip_in_subnet() {
     # first trim subnet
     local net_ip=${1%/*}
     local num=
+    local add=$2
     # if ip has colon it is ipv6
     if [[ "$net_ip" == *":"* ]]; then
-        # make sure to not get 0 or 1
-        num=$(printf "%x" $((RANDOM % 65533 + 2)))
+        num=$((RANDOM % 65533 ))
+        # see below
+        num=$((num - num % 10 + add + 2))
+        num=$(printf "%x" $num)
     else
         # if ipv4 we have to trim the final 0
         net_ip=${net_ip%0}
         # make sure to not get 0, 1 or 255
-        num=$(printf "%d" $((RANDOM % 252 + 2)))
+        num=$((RANDOM % 252))
+        # Avoid giving out duplicated ips if we are called more than once.
+        # The caller needs to keep a counter because this is executed ina subshell so we cannot use global var here.
+        # Basically subtract mod 10 then add the counter so we can never get a dup ip assuming counter < 10 which
+        # should always be the case here. Add 2 to avoid using .0 .1 which have special meaning.
+        num=$((num - num % 10 + add + 2))
     fi
     printf "$net_ip%s" $num
 }
@@ -358,6 +366,7 @@ function run_in_host_netns() {
 #     subnet=$subnet specifies the network subnet
 #     custom_dns_serve=$custom_dns_server
 #     aliases=$aliases comma seperated container aliases for dns resolution.
+#     internal={true,false} default is false
 function create_config() {
     local network_name=""
     local container_id=""
@@ -365,6 +374,7 @@ function create_config() {
     local subnet=""
     local custom_dns_server
     local aliases=""
+    local internal=false
 
      # parse arguments
     while [[ "$#" -gt 0 ]]; do
@@ -388,17 +398,21 @@ function create_config() {
         aliases)
             aliases="$value"
             ;;
+        internal)
+            internal="$value"
+            ;;
         *) die "unknown argument for '$arg' create_config" ;;
         esac
         shift
     done
 
-    container_ip=$(random_ip_in_subnet $subnet)
+    container_ip=$(random_ip_in_subnet $subnet $IP_COUNT)
+    IP_COUNT=$((IP_COUNT + 1))
     container_gw=$(gateway_from_subnet $subnet)
     subnets="{\"subnet\":\"$subnet\",\"gateway\":\"$container_gw\"}"
 
     create_network "$network_name" "$container_ip" "eth0" "$aliases"
-    create_network_infos "$network_name" $(random_string 64) "$subnets"
+    create_network_infos "$network_name" $(random_string 64) "$subnets" "$internal"
 
     read -r -d '\0' config <<EOF
 {
@@ -422,13 +436,12 @@ EOF
 # arg1 is network name
 # arg2 network_id
 # arg3 is subnets
+# arg4 is internal
 function create_network_infos() {
     local net_name=$1
-    shift
-    local net_id=$1
-    shift
-    local subnets=$1
-    shift
+    local net_id=$2
+    local subnets=$3
+    local internal=${4:-false}
     local interface_name=${net_name:0:7}
 
     read -r -d '\0' new_network_info <<EOF
@@ -441,7 +454,7 @@ function create_network_infos() {
         $subnets
       ],
       "ipv6_enabled": true,
-      "internal": false,
+      "internal": $internal,
       "dns_enabled": true,
       "ipam_options": {
         "driver": "host-local"
@@ -488,8 +501,8 @@ EOF
 function create_container() {
     CONTAINER_NS_PID=$(create_netns)
     CONTAINER_NS_PIDS+=("$CONTAINER_NS_PID")
-    create_container_backend "$CONTAINER_NS_PID" "$1"
     CONTAINER_CONFIGS+=("$1")
+    create_container_backend "$CONTAINER_NS_PID" "$1"
 }
 
 # arg1 is pid
@@ -517,6 +530,8 @@ function basic_host_setup() {
     # unsetting does not work, it would use the default address
     export DBUS_SYSTEM_BUS_ADDRESS=
     AARDVARK_TMPDIR=$(mktemp -d --tmpdir=${BATS_TMPDIR:-/tmp} aardvark_bats.XXXXXX)
+
+    IP_COUNT=0
 }
 
 function setup_slirp4netns() {
@@ -544,17 +559,6 @@ function setup_slirp4netns() {
 }
 
 function basic_teardown() {
-    rm -fr "$AARDVARK_TMPDIR"
-}
-
-################
-#  netavark_teardown#  tears down a network
-################
-function netavark_teardown() {
-    run_netavark teardown $1 <<<"$2"
-}
-
-function teardown() {
     # Now call netavark with all the configs and then kill the netns associated with it
     for i in "${!CONTAINER_CONFIGS[@]}"; do
         netavark_teardown $(get_container_netns_path "${CONTAINER_NS_PIDS[$i]}") "${CONTAINER_CONFIGS[$i]}"
@@ -572,6 +576,17 @@ function teardown() {
         kill -9 "$HOST_NS_PID"
     fi
 
+    rm -fr "$AARDVARK_TMPDIR"
+}
+
+################
+#  netavark_teardown#  tears down a network
+################
+function netavark_teardown() {
+    run_netavark teardown $1 <<<"$2"
+}
+
+function teardown() {
     basic_teardown
 }
 
@@ -586,8 +601,7 @@ function dig_reverse() {
     # first arg is container_netns_pid
     # second arg is the IP address
     # third arg is server addr
-    #run_in_container_netns "$1" "dig" "-x" "$2" "+short" "@$3"
-    run_in_container_netns "$1" "nslookup" "$2" "$3"
+    run_in_container_netns "$1" "dig" "-x" "$2" "@$3"
 }
 
 function setup() {

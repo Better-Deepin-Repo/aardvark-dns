@@ -71,9 +71,25 @@ load helpers
 	# contain unexpected warning.
 	assert "$output" !~ "WARNING: recursion requested but not available"
 
+	# check TCP support
+	run_in_container_netns "$a1_pid" "dig" "+tcp" "+short" "aone" "@$gw"
+	assert "$ip_a1"
+
+
 	run_in_container_netns "$a1_pid" "dig" "+short" "google.com" "@$gw"
 	# validate that we get an ipv4
 	assert "$output" =~ "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"
+	# Set recursion bit is already set if requested so output must not
+	# contain unexpected warning.
+	assert "$output" !~ "WARNING: recursion requested but not available"
+
+	# check TCP support for forwarding
+	# note there is no guarantee that the forwarding is happening via TCP though
+	# TODO add custom dns record that is to big for udp so we can be sure...
+	run_in_container_netns "$a1_pid" "dig" "+tcp" "google.com" "@$gw"
+	# validate that we get an ipv4
+	assert "$output" =~ "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"
+	assert "$output" =~ "\(TCP\)" "server used TCP"
 	# Set recursion bit is already set if requested so output must not
 	# contain unexpected warning.
 	assert "$output" !~ "WARNING: recursion requested but not available"
@@ -164,4 +180,54 @@ load helpers
 	# Set recursion bit is already set if requested so output must not
 	# contain unexpected warning.
 	assert "$output" !~ "WARNING: recursion requested but not available"
+}
+
+# Internal network, meaning no DNS servers.
+# Hence all external requests must fail.
+@test "basic container - internal network has no DNS" {
+	setup_slirp4netns
+
+	subnet_a=$(random_subnet)
+	create_config network_name="podman1" internal=true container_id=$(random_string 64) container_name="aone" subnet="$subnet_a" custom_dns_server='"1.1.1.1","8.8.8.8"' aliases='"a1", "1a"'
+	config_a1=$config
+	# Network name is still recorded as podman1
+	ip_a1=$(echo "$config_a1" | jq -r .networks.podman1.static_ips[0])
+	gw=$(echo "$config_a1" | jq -r .network_info.podman1.subnets[0].gateway)
+	create_container "$config_a1"
+	a1_pid=$CONTAINER_NS_PID
+	run_in_container_netns "$a1_pid" "dig" "+short" "aone" "@$gw"
+	assert "$ip_a1"
+	# Set recursion bit is already set if requested so output must not
+	# contain unexpected warning.
+	assert "$output" !~ "WARNING: recursion requested but not available"
+
+	# Internal network means no DNS server means this should hard-fail
+	expected_rc=1 run_in_container_netns "$a1_pid" "host" "-t" "ns" "google.com" "$gw"
+	assert "$output" =~ "Host google.com not found"
+	assert "$output" =~ "NXDOMAIN"
+}
+
+# Internal network, but this time with IPv6. Same result as above expected.
+@test "basic container - internal network has no DNS - ipv6" {
+	setup_slirp4netns
+
+	subnet_a=$(random_subnet 6)
+	# Cloudflare and Google public anycast DNS v6 nameservers
+	create_config network_name="podman1" internal=true container_id=$(random_string 64) container_name="aone" subnet="$subnet_a" custom_dns_server='"2606:4700:4700::1111","2001:4860:4860::8888"' aliases='"a1", "1a"'
+	config_a1=$config
+	# Network name is still recorded as podman1
+	ip_a1=$(echo "$config_a1" | jq -r .networks.podman1.static_ips[0])
+	gw=$(echo "$config_a1" | jq -r .network_info.podman1.subnets[0].gateway)
+	create_container "$config_a1"
+	a1_pid=$CONTAINER_NS_PID
+	run_in_container_netns "$a1_pid" "dig" "+short" "aone" "@$gw" "AAAA"
+	assert "$ip_a1"
+	# Set recursion bit is already set if requested so output must not
+	# contain unexpected warning.
+	assert "$output" !~ "WARNING: recursion requested but not available"
+
+	# Internal network means no DNS server means this should hard-fail
+	expected_rc=1 run_in_container_netns "$a1_pid" "host" "-t" "ns" "google.com" "$gw"
+	assert "$output" =~ "Host google.com not found"
+	assert "$output" =~ "NXDOMAIN"
 }

@@ -22,6 +22,11 @@ pub struct DNSBackend {
     pub ctr_dns_server: HashMap<IpAddr, Option<Vec<IpAddr>>>,
     // Map of network name and DNS server IPs.
     pub network_dns_server: HashMap<String, Vec<IpAddr>>,
+    // Map of network name to bool (network is/is not internal)
+    pub network_is_internal: HashMap<String, bool>,
+
+    // search_domain used by aardvark-dns
+    pub search_domain: String,
 }
 
 pub enum DNSResult {
@@ -45,13 +50,23 @@ impl DNSBackend {
         reverse: HashMap<String, HashMap<IpAddr, Vec<String>>>,
         ctr_dns_server: HashMap<IpAddr, Option<Vec<IpAddr>>>,
         network_dns_server: HashMap<String, Vec<IpAddr>>,
+        network_is_internal: HashMap<String, bool>,
+        mut search_domain: String,
     ) -> DNSBackend {
+        // dns request always end with dot so append one for easier compare later
+        if let Some(c) = search_domain.chars().rev().nth(0) {
+            if c != '.' {
+                search_domain.push('.')
+            }
+        }
         DNSBackend {
             ip_mappings: containers,
             name_mappings: networks,
             reverse_mappings: reverse,
             ctr_dns_server,
             network_dns_server,
+            network_is_internal,
+            search_domain,
         }
     }
 
@@ -64,6 +79,14 @@ impl DNSBackend {
     pub fn lookup(&self, requester: &IpAddr, entry: &str) -> DNSResult {
         // Normalize lookup entry to lowercase.
         let mut name = entry.to_lowercase();
+
+        // Trim off configured search domain if needed as keys do not contain it.
+        // There doesn't seem to be a nicer way to do that:
+        // https://users.rust-lang.org/t/can-strip-suffix-mutate-a-string-value/86852
+        if name.ends_with(&self.search_domain) {
+            name.truncate(name.len() - self.search_domain.len())
+        }
+
         let nets = match self.ip_mappings.get(requester) {
             Some(n) => n,
             None => return DNSResult::NoSuchIP,
@@ -118,6 +141,31 @@ impl DNSBackend {
         };
 
         Some(results)
+    }
+
+    // Checks if a container is associated with only internal networks.
+    // Returns true if and only if a container is only present in
+    // internal networks.
+    pub fn ctr_is_internal(&self, requester: &IpAddr) -> bool {
+        match self.ip_mappings.get(requester) {
+            Some(nets) => {
+                for net in nets {
+                    match self.network_is_internal.get(net) {
+                        Some(internal) => {
+                            if !internal {
+                                return false;
+                            }
+                        }
+                        None => continue,
+                    }
+                }
+            }
+            // For safety, if we don't know about the IP, assume it's probably
+            // someone on the host asking; let them access DNS.
+            None => return false,
+        }
+
+        true
     }
 
     /// Return a single name resolved via mapping if it exists.

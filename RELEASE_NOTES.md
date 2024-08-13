@@ -1,5 +1,25 @@
 # Release Notes
 
+## v1.12.1
+
+* Fixed problem with categories in Cargo.toml that prevented us from publishing v1.12.0
+
+## v1.12.0
+
+* Dependency updates
+* Improve all around error handling and logging
+* Added TCP/IP support
+* Update upsteam resolvers on each refresh
+
+## v1.11.0
+* Do not allow "internal" networks to access DNS
+* On SIGHUP, stop AV threads no longer needed and reload in memory those that are 
+* updated dependencies
+
+## v1.10.0
+* removed unused kill switch
+* updated dependencies
+
 ## v1.9.0
 * update trust-dns to hickory
 * never report an error when the syslog init fails

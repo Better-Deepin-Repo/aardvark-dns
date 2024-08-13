@@ -1,5 +1,6 @@
 use crate::backend::DNSBackend;
-use log::warn;
+use crate::error::{AardvarkError, AardvarkResult};
+use log::error;
 use std::collections::HashMap;
 use std::fs::{metadata, read_dir, read_to_string};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -21,19 +22,17 @@ pub mod constants;
 #[allow(clippy::type_complexity)]
 pub fn parse_configs(
     dir: &str,
-) -> Result<
-    (
-        DNSBackend,
-        HashMap<String, Vec<Ipv4Addr>>,
-        HashMap<String, Vec<Ipv6Addr>>,
-    ),
-    std::io::Error,
-> {
+    filter_search_domain: &str,
+) -> AardvarkResult<(
+    DNSBackend,
+    HashMap<String, Vec<Ipv4Addr>>,
+    HashMap<String, Vec<Ipv6Addr>>,
+)> {
     if !metadata(dir)?.is_dir() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("config directory {} must exist and be a directory", dir),
-        ));
+        return Err(AardvarkError::msg(format!(
+            "config directory {} must exist and be a directory",
+            dir
+        )));
     }
 
     let mut network_membership: HashMap<String, Vec<String>> = HashMap::new();
@@ -44,6 +43,7 @@ pub fn parse_configs(
     let mut listen_ips_6: HashMap<String, Vec<Ipv6Addr>> = HashMap::new();
     let mut ctr_dns_server: HashMap<IpAddr, Option<Vec<IpAddr>>> = HashMap::new();
     let mut network_dns_server: HashMap<String, Vec<IpAddr>> = HashMap::new();
+    let mut network_is_internal: HashMap<String, bool> = HashMap::new();
 
     // Enumerate all files in the directory, read them in one by one.
     // Steadily build a map of what container has what IPs and what
@@ -64,32 +64,55 @@ pub fn parse_configs(
                         continue;
                     }
                 }
-                let parsed_network_config = parse_config(cfg.path().as_path())?;
+                let parsed_network_config = match parse_config(cfg.path().as_path()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            error!(
+                                "Error reading config file {:?} for server update: {}",
+                                cfg.path(),
+                                e
+                            )
+                        }
+                        continue;
+                    }
+                };
+
+                let mut internal = false;
 
                 let network_name: String = match cfg.path().file_name() {
                     // This isn't *completely* safe, but I do not foresee many
                     // cases where our network names include non-UTF8
                     // characters.
                     Some(s) => match s.to_str() {
-                        Some(st) => st.to_string(),
-                        None => return Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        Some(st) => {
+			    let name_full = st.to_string();
+			    if name_full.ends_with(constants::INTERNAL_SUFFIX) {
+				internal = true;
+			    }
+			    name_full.strip_suffix(constants::INTERNAL_SUFFIX).unwrap_or(&name_full).to_string()
+			},
+                        None => return Err(AardvarkError::msg(
                             format!("configuration file {} name has non-UTF8 characters", s.to_string_lossy()),
                         )),
                     },
-                    None => return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    None => return Err(AardvarkError::msg(
                         format!("configuration file {} does not have a file name, cannot identify network name", cfg.path().to_string_lossy()),
                         )),
                 };
 
                 // Network DNS Servers were found while parsing config
                 // lets populate the backend
-                if !parsed_network_config.network_dnsservers.is_empty() {
+                // Only if network is not internal.
+                // If internal, explicitly insert empty list.
+                if !parsed_network_config.network_dnsservers.is_empty() && !internal {
                     network_dns_server.insert(
                         network_name.clone(),
                         parsed_network_config.network_dnsservers,
                     );
+                }
+                if internal {
+                    network_dns_server.insert(network_name.clone(), Vec::new());
                 }
 
                 for ip in parsed_network_config.network_bind_ip {
@@ -124,7 +147,10 @@ pub fn parse_configs(
                                 .entry(IpAddr::V4(ip))
                                 .or_default()
                                 .append(&mut entry.aliases.clone());
-                            ctr_dns_server.insert(IpAddr::V4(ip), entry.dns_servers.clone());
+                            // DNS only accepted on non-internal networks.
+                            if !internal {
+                                ctr_dns_server.insert(IpAddr::V4(ip), entry.dns_servers.clone());
+                            }
                             new_ctr_ips.push(IpAddr::V4(ip));
                         }
                     }
@@ -136,7 +162,10 @@ pub fn parse_configs(
                                 .entry(IpAddr::V6(ip))
                                 .or_default()
                                 .append(&mut entry.aliases.clone());
-                            ctr_dns_server.insert(IpAddr::V6(ip), entry.dns_servers.clone());
+                            // DNS only accepted on non-internal networks.
+                            if !internal {
+                                ctr_dns_server.insert(IpAddr::V6(ip), entry.dns_servers.clone());
+                            }
                             new_ctr_ips.push(IpAddr::V6(ip));
                         }
                     }
@@ -150,9 +179,15 @@ pub fn parse_configs(
                         let alias_entries = network_aliases.entry(alias).or_default();
                         alias_entries.append(&mut new_ctr_ips.clone());
                     }
+
+                    network_is_internal.insert(network_name.clone(), internal);
                 }
             }
-            Err(e) => warn!("Error reading config file for server update: {}", e),
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    error!("Error listing config file for server update: {}", e)
+                }
+            }
         }
     }
 
@@ -168,13 +203,10 @@ pub fn parse_configs(
                 }
             }
             None => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!(
+                return Err(AardvarkError::msg(format!(
                     "Container ID {} has an entry in IPs table, but not network membership table",
                     ctr_id
-                ),
-                ))
+                )))
             }
         }
     }
@@ -186,6 +218,8 @@ pub fn parse_configs(
             reverse,
             ctr_dns_server,
             network_dns_server,
+            network_is_internal,
+            filter_search_domain.to_owned(),
         ),
         listen_ips_4,
         listen_ips_6,
