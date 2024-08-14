@@ -1,6 +1,13 @@
 aardvark-dns (1.12.1-1) experimental; urgency=medium
 
   * New upstream release 1.12.1
+  * Refresh patches
+  * Addjust dependies:
+     - rust-arc-swap 1.6
+     - rust-flume
+     - rust-log
+  * Build against nix 0.27
+  * Build against tokio 1.35
 
  -- Reinhard Tartler <siretart@tauware.de>  Tue, 13 Aug 2024 07:01:50 -0400
 
