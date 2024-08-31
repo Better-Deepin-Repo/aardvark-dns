@@ -8,8 +8,9 @@ aardvark-dns (1.12.1-1) experimental; urgency=medium
      - rust-log
   * Build against nix 0.27
   * Build against tokio 1.35
+  * Tighten depends on netavark
 
- -- Reinhard Tartler <siretart@tauware.de>  Tue, 13 Aug 2024 07:01:50 -0400
+ -- Reinhard Tartler <siretart@tauware.de>  Sat, 31 Aug 2024 08:38:58 -0400
 
 aardvark-dns (1.9.0-2) unstable; urgency=medium
 
