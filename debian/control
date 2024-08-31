@@ -33,7 +33,7 @@ Rules-Requires-Root: no
 
 Package: aardvark-dns
 Architecture: any
-Depends: netavark (>> 1.6), ${misc:Depends}, ${shlibs:Depends}
+Depends: netavark (>> 1.12), ${misc:Depends}, ${shlibs:Depends}
 Enhances: podman
 Description: Container-focused DNS server
  Netavark is designed to work with podman but is also applicable for other OCI
