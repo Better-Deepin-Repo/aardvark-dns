@@ -43,7 +43,7 @@ index 71b3708..04810fa 100644
  ]
  
 diff --git a/Cargo.toml b/Cargo.toml
-index 2c25a1c..65ae8af 100644
+index 334971d..fe28f29 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -31,7 +31,7 @@ hickory-client = "0.24.1"
