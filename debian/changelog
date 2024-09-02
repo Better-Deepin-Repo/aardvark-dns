@@ -3,7 +3,7 @@ aardvark-dns (1.12.1-2) unstable; urgency=medium
   * Upload to unstable
   * Bump Standards-Version
 
- -- Reinhard Tartler <siretart@tauware.de>  Mon, 02 Sep 2024 09:15:36 -0400
+ -- Reinhard Tartler <siretart@tauware.de>  Mon, 02 Sep 2024 09:35:56 -0400
 
 aardvark-dns (1.12.1-1) experimental; urgency=medium
 

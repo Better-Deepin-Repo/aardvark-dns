@@ -25,7 +25,7 @@ Build-Depends: cargo:native <!nocheck>,
                librust-tokio+full-dev,
                libstd-rust-dev <!nocheck>,
                rustc:native <!nocheck>
-Standards-Version: 4.6.1
+Standards-Version: 4.7.0
 Homepage: https://github.com/containers/aardvark-dns
 Vcs-Browser: https://salsa.debian.org/debian/aardvark-dns
 Vcs-Git: https://salsa.debian.org/debian/aardvark-dns.git
