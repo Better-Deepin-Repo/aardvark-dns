@@ -10,7 +10,7 @@ Subject: Build against nix-0.27
  4 files changed, 11 insertions(+), 11 deletions(-)
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 71b3708..04810fa 100644
+index 1036d66..96203b0 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -175,12 +175,6 @@ version = "1.0.0"
@@ -43,7 +43,7 @@ index 71b3708..04810fa 100644
  ]
  
 diff --git a/Cargo.toml b/Cargo.toml
-index 334971d..fe28f29 100644
+index 3d6c5f1..1e5a54d 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -31,7 +31,7 @@ hickory-client = "0.24.1"

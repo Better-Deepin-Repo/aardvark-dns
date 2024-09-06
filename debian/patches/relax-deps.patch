@@ -7,7 +7,7 @@ Subject: Relax dependencies
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index f459957..334971d 100644
+index 6278080..3d6c5f1 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -22,8 +22,8 @@ platforms = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "powerpc64
