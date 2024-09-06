@@ -1,3 +1,14 @@
+aardvark-dns (1.12.2-1) unstable; urgency=medium
+
+  * New upstream relase.
+  * Fixes: CVE-2024-8418: TCP connections where not handled correctly
+    which allowed a container to block dns queries for other clients on
+    the same network, Closes: #1080964
+  * Normalize patches with gbp pq
+  * Add autopkgtest that runs upstream integration tests
+
+ -- Reinhard Tartler <siretart@tauware.de>  Thu, 05 Sep 2024 20:50:47 -0400
+
 aardvark-dns (1.12.1-2) unstable; urgency=medium
 
   * Upload to unstable
