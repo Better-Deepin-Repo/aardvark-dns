@@ -1,9 +1,9 @@
-aardvark-dns (1.12.2-1.1) UNRELEASED; urgency=medium
+aardvark-dns (1.12.2-2) unstable; urgency=medium
 
-  * Non-maintainer upload.
-  * Add patch for nix 0.29.
+  [ Peter Michael Green ]
+  * Add patch for nix 0.29, Closes: #1085403
 
- -- Peter Michael Green <plugwash@debian.org>  Sat, 19 Oct 2024 01:11:38 +0000
+ -- Reinhard Tartler <siretart@tauware.de>  Fri, 22 Nov 2024 14:26:51 -0500
 
 aardvark-dns (1.12.2-1) unstable; urgency=medium
 
