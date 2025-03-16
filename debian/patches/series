@@ -1,4 +1,2 @@
 relax-deps.patch
-nix-0.27.patch
 0003-Disable-failing-tests.patch
-nix-0.29.patch

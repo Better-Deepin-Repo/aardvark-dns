@@ -6,27 +6,25 @@ Subject: Relax dependencies
  Cargo.toml | 6 +++---
  1 file changed, 3 insertions(+), 3 deletions(-)
 
-diff --git a/Cargo.toml b/Cargo.toml
-index 6278080..3d6c5f1 100644
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -22,8 +22,8 @@ platforms = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "powerpc64
+Index: aardvark-dns/Cargo.toml
+===================================================================
+--- aardvark-dns.orig/Cargo.toml
++++ aardvark-dns/Cargo.toml
+@@ -23,12 +23,12 @@ platforms = ["x86_64-unknown-linux-gnu",
  # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
  
  [dependencies]
--clap = { version = "~4.4.10", features = ["derive"] }
+-clap = { version = "~4.5.28", features = ["derive"] }
 -syslog = "^7.0.0"
-+clap = { version = ">= 4.3", features = ["derive"] }
-+syslog = ">= 6.0"
- log = "0.4.22"
- hickory-server = "0.24.1"
- hickory-proto = { version = "0.24.1", features = ["tokio-runtime"] }
-@@ -33,7 +33,7 @@ tokio = { version = "1.39.2", features = ["macros", "rt-multi-thread", "net", "s
- resolv-conf = "0.7.0"
- nix = { version = "0.29.0", features = ["fs", "signal"] }
- libc = "0.2.154"
--arc-swap = "1.7.1"
-+arc-swap = { version = ">= 1.6" }
- flume = "0.11.0"
- 
- [build-dependencies]
++clap = { version = "~4.5.23", features = ["derive"] }
++syslog = "^6.0.0"
+ log = "0.4.25"
+-hickory-server = "0.24.2"
+-hickory-proto = { version = "0.24.2", features = ["tokio-runtime"] }
+-hickory-client = "0.24.2"
++hickory-server = "0.24.1"
++hickory-proto = { version = "0.24.1", features = ["tokio-runtime"] }
++hickory-client = "0.24.1"
+ futures-util = { version = "0.3.31", default-features = false }
+ tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread", "net", "signal"] }
+ nix = { version = "0.29.0", features = ["fs", "signal", "net"] }
