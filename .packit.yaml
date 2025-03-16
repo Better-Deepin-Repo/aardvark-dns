@@ -28,7 +28,7 @@ packages:
   aardvark-dns-centos:
     pkg_tool: centpkg
     specfile_path: rpm/aardvark-dns.spec
-  aardvark-dns-rhel:
+  aardvark-dns-eln:
     specfile_path: rpm/aardvark-dns.spec
 
 srpm_build_deps:
@@ -44,8 +44,16 @@ jobs:
       failure_comment:
         message: "Ephemeral COPR build failed. @containers/packit-build please check."
     targets:
-      fedora-all-x86_64: {}
-      fedora-all-aarch64: {}
+      - fedora-all-x86_64
+      - fedora-all-aarch64
+    enable_net: true
+    osh_diff_scan_after_copr_build: false
+
+  - job: copr_build
+    trigger: pull_request
+    packages: [aardvark-dns-eln]
+    notifications: *copr_build_failure_notification
+    targets:
       fedora-eln-x86_64:
         additional_repos:
           - "https://kojipkgs.fedoraproject.org/repos/eln-build/latest/x86_64/"
@@ -58,20 +66,11 @@ jobs:
     trigger: pull_request
     packages: [aardvark-dns-centos]
     notifications: *copr_build_failure_notification
-    targets:
+    targets: &centos_copr_targets
       - centos-stream-9-x86_64
       - centos-stream-9-aarch64
       - centos-stream-10-x86_64
       - centos-stream-10-aarch64
-    enable_net: true
-
-  - job: copr_build
-    trigger: pull_request
-    packages: [aardvark-dns-rhel]
-    notifications: *copr_build_failure_notification
-    targets:
-      - epel-9-x86_64
-      - epel-9-aarch64
     enable_net: true
 
   # Run on commit to main branch
@@ -94,46 +93,40 @@ jobs:
       failure_comment:
         message: "Tests failed. @containers/packit-build please check."
     targets:
-      - fedora-all-x86_64
-      - fedora-all-aarch64
+      - fedora-development-x86_64
+      - fedora-development-aarch64
+      - fedora-latest-x86_64
+      - fedora-latest-aarch64
+      - fedora-latest-stable-x86_64
+      - fedora-latest-stable-aarch64
+      - fedora-40-x86_64
+      - fedora-40-aarch64
+    tf_extra_params:
+      environments:
+        - artifacts:
+          - type: repository-file
+            id: https://copr.fedorainfracloud.org/coprs/rhcontainerbot/podman-next/repo/fedora-$releasever/rhcontainerbot-podman-next-fedora-$releasever.repo
 
   # Unit tests on CentOS Stream
   - job: tests
     trigger: pull_request
     packages: [aardvark-dns-centos]
     notifications: *test_failure_notification
-    targets:
-      - centos-stream-9-x86_64
-      - centos-stream-9-aarch64
-      - centos-stream-10-x86_64
-      - centos-stream-10-aarch64
-
-  # Unit tests on RHEL
-  - job: tests
-    trigger: pull_request
-    packages: [aardvark-dns-rhel]
-    notifications: *test_failure_notification
-    use_internal_tf: true
-    targets:
-      epel-9-aarch64:
-        distros: [RHEL-9-Nightly,RHEL-9.4.0-Nightly]
-      epel-9-x86_64:
-        distros: [RHEL-9-Nightly,RHEL-9.4.0-Nightly]
-      # NOTE: Need to use centos-stream-10 until RHEL-10/EPEL-10 copr targets
-      # are available
-      # TODO: iptables kernel module is not available on rhel10.
-      # Enable these after netavark default is switched to nftables.
-      #centos-stream-10-aarch64:
-      #  distros: [RHEL-10-Beta-Nightly]
-      #centos-stream-10-x86_64:
-      #  distros: [RHEL-10-Beta-Nightly]
+    targets: *centos_copr_targets
+    tf_extra_params:
+      environments:
+        - artifacts:
+          - type: repository-file
+            id: https://copr.fedorainfracloud.org/coprs/rhcontainerbot/podman-next/repo/centos-stream-$releasever/rhcontainerbot-podman-next-centos-stream-$releasever.repo
+          - type: repository-file
+            id: https://src.fedoraproject.org/rpms/epel-release/raw/epel$releasever/f/epel.repo
 
   # Sync to Fedora
   - job: propose_downstream
     trigger: release
     packages: [aardvark-dns-fedora]
     update_release: false
-    dist_git_branches:
+    dist_git_branches: &fedora_targets
       - fedora-all
 
   # Sync to CentOS Stream
@@ -143,16 +136,12 @@ jobs:
     update_release: false
     dist_git_branches:
       - c10s
+      - c9s
 
   - job: koji_build
     trigger: commit
-    dist_git_branches:
-      - fedora-all
-
-        # NOTE: Bodhi update tasks are disabled to allow netavark and aardvark-dns X.Y
-        # builds in a single manual bodhi update. Leaving this commented out
-        # but not deleted so it's not forgotten.
-        #- job: bodhi_update
-        #trigger: commit
-        #dist_git_branches:
-        #- fedora-branched # rawhide updates are created automatically
+    packages: [aardvark-dns-fedora]
+    sidetag_group: netavark-releases
+    dependents:
+      - netavark
+    dist_git_branches: *fedora_targets

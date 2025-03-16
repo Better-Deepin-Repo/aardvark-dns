@@ -1,8 +1,23 @@
 # Release Notes
 
+## v1.14.0
+
+* Dependency updates.
+
+## v1.13.1
+
+* Fix parsing of ipv6 link local addresses in resolv.conf ([#535](https://github.com/containers/aardvark-dns/issues/535))
+
+## v1.13.0
+
+* Set TTL to 0 for container names
+* Allow forwarding of names with no ndots
+* DNS: limit to 3 resolvers and use better timeout for them
+* Ignore unknown resolv.conf options
+
 ## v1.12.2
 
-* This releases fixes a security issue (CVE-2024-8418) where tcp connections where not handled correctly which allowed a container to block dns queries for other clients on the same network [#500](https://github.com/containers/aardvark-dns/issues/500). Versions before v1.12.0 are unaffected as they do not have tcp support.
+* This releases fixes a security issue (CVE-2024-8418) where tcp connections where not handled correctly which allowed a container to block dns queries for other clients on the same network #500. Versions before v1.12.0 are unaffected as they do not have tcp support.
 
 ## v1.12.1
 
