@@ -5,7 +5,7 @@
 # Main collection of env. vars to set for all tasks and scripts.
 env:
     # Actual|intended branch for this run
-    DEST_BRANCH: "v1.12"
+    DEST_BRANCH: "main"
     # The default is 'sh' if unspecified
     CIRRUS_SHELL: "/bin/bash"
     # Location where source repo. will be cloned
@@ -15,11 +15,11 @@ env:
     # Rust compiler output lives here (see Makefile)
     CARGO_TARGET_DIR: "$CIRRUS_WORKING_DIR/targets"
     # Testing depends on the latest netavark binary from upstream CI
-    NETAVARK_BRANCH: "v1.12"
+    NETAVARK_BRANCH: "main"
     NETAVARK_URL: "https://api.cirrus-ci.com/v1/artifact/github/containers/netavark/success/binary.zip?branch=${NETAVARK_BRANCH}"
     # Save a little typing (path relative to $CIRRUS_WORKING_DIR)
     SCRIPT_BASE: "./contrib/cirrus"
-    IMAGE_SUFFIX: "c20240529t141726z-f40f39d13"
+    IMAGE_SUFFIX: "c20250131t121915z-f41f40d13"
     FEDORA_NETAVARK_IMAGE: "fedora-netavark-${IMAGE_SUFFIX}"
     FEDORA_NETAVARK_AMI: "fedora-netavark-aws-arm64-${IMAGE_SUFFIX}"
     EC2_INST_TYPE: "t4g.xlarge"
@@ -203,29 +203,18 @@ meta_task:
     clone_script: &noop mkdir -p $CIRRUS_WORKING_DIR  # source not needed
     script: /usr/local/bin/entrypoint.sh
 
-ubuntu20_build_task:
-    alias: ubuntu20_build
+msrv_build_task:
+    alias: msrv_build
     depends_on:
       - "build"
     gce_instance: *standard_gce_x86_64
     container:
         cpu: 2
         memory: 2
-        image: quay.io/libpod/ubuntu20rust
+        # When bumping the image always remember to update the README MSRV as well.
+        image: quay.io/libpod/nv-rust:1.76
     script:
-        - cargo build
-
-centos9_build_task:
-    alias: centos9_build
-    depends_on:
-      - "build"
-    gce_instance: *standard_gce_x86_64
-    container:
-        cpu: 2
-        memory: 2
-        image: quay.io/libpod/centos9rust
-    script:
-        - cargo build
+        - make build
 
 
 success_task:
@@ -242,8 +231,7 @@ success_task:
     - "integration"
     - "integration_aarch64"
     - "meta"
-    - "ubuntu20_build"
-    - "centos9_build"
+    - "msrv_build"
   env:
     API_URL_BASE: "https://api.cirrus-ci.com/v1/artifact/build/${CIRRUS_BUILD_ID}"
     # FAIL task if all expected binary flavors are not present
