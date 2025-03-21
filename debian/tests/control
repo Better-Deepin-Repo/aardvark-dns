@@ -3,6 +3,7 @@ Features: test-name=system-tests:@
 Architecture: amd64
 Depends: bats,
          bind9-dnsutils,
+         dnsmasq,
          firewalld,
          ipcalc,
          iproute2,
@@ -12,7 +13,6 @@ Depends: bats,
          ncat,
          netavark (>> 1.12),
          nftables,
-         slirp4netns,
          util-linux,
          @
 Restrictions: allow-stderr, needs-root, isolation-machine
