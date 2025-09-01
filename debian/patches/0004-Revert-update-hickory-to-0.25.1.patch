@@ -1,0 +1,627 @@
+From: Reinhard Tartler <siretart@tauware.de>
+Date: Mon, 1 Sep 2025 19:09:44 -0400
+Subject: Revert "update hickory to 0.25.1"
+
+This reverts commit 0d6c386231db8841e39b3ccfa92a585489d23b05.
+---
+ Cargo.lock         | 223 +++++++++++++++++++----------------------------------
+ Cargo.toml         |   6 +-
+ src/dns/coredns.rs |  70 ++++++++---------
+ 3 files changed, 115 insertions(+), 184 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index cdf86fb..2daad92 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -250,12 +250,6 @@ version = "0.8.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+ 
+-[[package]]
+-name = "critical-section"
+-version = "1.2.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+-
+ [[package]]
+ name = "data-encoding"
+ version = "2.7.0"
+@@ -300,6 +294,15 @@ dependencies = [
+  "syn",
+ ]
+ 
++[[package]]
++name = "error-chain"
++version = "0.12.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2d2f06b9cac1506ece98fe3231e3cc9c4410ec3d5b1f24ae1c8946f0742cdefc"
++dependencies = [
++ "version_check",
++]
++
+ [[package]]
+ name = "flume"
+ version = "0.11.1"
+@@ -376,22 +379,10 @@ dependencies = [
+  "cfg-if",
+  "js-sys",
+  "libc",
+- "wasi 0.11.0+wasi-snapshot-preview1",
++ "wasi",
+  "wasm-bindgen",
+ ]
+ 
+-[[package]]
+-name = "getrandom"
+-version = "0.3.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "73fea8450eea4bac3940448fb7ae50d91f034f941199fcd9d909a5a07aa455f0"
+-dependencies = [
+- "cfg-if",
+- "libc",
+- "r-efi",
+- "wasi 0.14.2+wasi-0.2.4",
+-]
+-
+ [[package]]
+ name = "gimli"
+ version = "0.31.1"
+@@ -406,9 +397,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+ 
+ [[package]]
+ name = "hickory-client"
+-version = "0.25.2"
++version = "0.24.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c466cd63a4217d5b2b8e32f23f58312741ce96e3c84bf7438677d2baff0fc555"
++checksum = "156579a5cd8d1fc6f0df87cc21b6ee870db978a163a1ba484acd98a4eff5a6de"
+ dependencies = [
+  "cfg-if",
+  "data-encoding",
+@@ -425,9 +416,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "hickory-proto"
+-version = "0.25.2"
++version = "0.24.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502"
++checksum = "92652067c9ce6f66ce53cc38d1169daa36e6e7eb7dd3b63b5103bd9d97117248"
+ dependencies = [
+  "async-trait",
+  "cfg-if",
+@@ -440,8 +431,6 @@ dependencies = [
+  "ipnet",
+  "once_cell",
+  "rand",
+- "ring",
+- "serde",
+  "thiserror",
+  "tinyvec",
+  "tokio",
+@@ -451,19 +440,16 @@ dependencies = [
+ 
+ [[package]]
+ name = "hickory-server"
+-version = "0.25.2"
++version = "0.24.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d53e5fe811b941c74ee46b8818228bfd2bc2688ba276a0eaeb0f2c95ea3b2585"
++checksum = "090078aff4e305853f8ccfbc89e6a1eec8a189bcb842be46255a2b660dae9416"
+ dependencies = [
+  "async-trait",
+  "bytes",
+  "cfg-if",
+- "data-encoding",
+  "enum-as-inner",
+  "futures-util",
+  "hickory-proto",
+- "ipnet",
+- "prefix-trie",
+  "serde",
+  "thiserror",
+  "time",
+@@ -474,13 +460,13 @@ dependencies = [
+ 
+ [[package]]
+ name = "hostname"
+-version = "0.4.0"
++version = "0.3.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f9c7c7c8ac16c798734b8a24560c1362120597c40d5e1459f09498f8f6c8f2ba"
++checksum = "3c731c3e10504cc8ed35cfe2f1db4c9274c3d35fa486e3b31df46f068ef3e867"
+ dependencies = [
+- "cfg-if",
+  "libc",
+- "windows",
++ "match_cfg",
++ "winapi",
+ ]
+ 
+ [[package]]
+@@ -661,9 +647,6 @@ name = "ipnet"
+ version = "2.11.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "469fb0b9cefa57e3ef31275ee7cacb78f2fdca44e4765491884a2b119d4eb130"
+-dependencies = [
+- "serde",
+-]
+ 
+ [[package]]
+ name = "is_terminal_polyfill"
+@@ -715,6 +698,12 @@ version = "0.4.27"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
+ 
++[[package]]
++name = "match_cfg"
++version = "0.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
++
+ [[package]]
+ name = "memchr"
+ version = "2.7.4"
+@@ -746,7 +735,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "2886843bf800fba2e3377cff24abf6379b4c4d5c6681eaf9ea5b0d15090450bd"
+ dependencies = [
+  "libc",
+- "wasi 0.11.0+wasi-snapshot-preview1",
++ "wasi",
+  "windows-sys 0.52.0",
+ ]
+ 
+@@ -756,7 +745,7 @@ version = "0.7.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3"
+ dependencies = [
+- "getrandom 0.2.15",
++ "getrandom",
+ ]
+ 
+ [[package]]
+@@ -819,10 +808,6 @@ name = "once_cell"
+ version = "1.20.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "945462a4b81e43c4e3ba96bd7b49d834c6f61198356aa858733bc4acf3cbe62e"
+-dependencies = [
+- "critical-section",
+- "portable-atomic",
+-]
+ 
+ [[package]]
+ name = "percent-encoding"
+@@ -842,12 +827,6 @@ version = "0.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+ 
+-[[package]]
+-name = "portable-atomic"
+-version = "1.11.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "350e9b48cbc6b0e028b0473b114454c6316e57336ee184ceab6e53f72c178b3e"
+-
+ [[package]]
+ name = "powerfmt"
+ version = "0.2.0"
+@@ -860,17 +839,7 @@ version = "0.2.20"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "77957b295656769bb8ad2b6a6b09d897d94f05c41b069aede1fcdaa675eaea04"
+ dependencies = [
+- "zerocopy 0.7.35",
+-]
+-
+-[[package]]
+-name = "prefix-trie"
+-version = "0.7.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "85cf4c7c25f1dd66c76b451e9041a8cfce26e4ca754934fa7aed8d5a59a01d20"
+-dependencies = [
+- "ipnet",
+- "num-traits",
++ "zerocopy",
+ ]
+ 
+ [[package]]
+@@ -891,12 +860,6 @@ dependencies = [
+  "proc-macro2",
+ ]
+ 
+-[[package]]
+-name = "r-efi"
+-version = "5.2.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "74765f6d916ee2faa39bc8e68e4f3ed8949b48cccdac59983d287a7cb71ce9c5"
+-
+ [[package]]
+ name = "radix_trie"
+ version = "0.2.1"
+@@ -909,20 +872,20 @@ dependencies = [
+ 
+ [[package]]
+ name = "rand"
+-version = "0.9.0"
++version = "0.8.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3779b94aeb87e8bd4e834cee3650289ee9e0d5677f976ecdb6d219e5f4f6cd94"
++checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+ dependencies = [
++ "libc",
+  "rand_chacha",
+  "rand_core",
+- "zerocopy 0.8.24",
+ ]
+ 
+ [[package]]
+ name = "rand_chacha"
+-version = "0.9.0"
++version = "0.3.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
++checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+ dependencies = [
+  "ppv-lite86",
+  "rand_core",
+@@ -930,25 +893,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "rand_core"
+-version = "0.9.3"
++version = "0.6.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
++checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+ dependencies = [
+- "getrandom 0.3.2",
+-]
+-
+-[[package]]
+-name = "ring"
+-version = "0.17.14"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
+-dependencies = [
+- "cc",
+- "cfg-if",
+- "getrandom 0.2.15",
+- "libc",
+- "untrusted",
+- "windows-sys 0.52.0",
++ "getrandom",
+ ]
+ 
+ [[package]]
+@@ -1074,10 +1023,11 @@ dependencies = [
+ 
+ [[package]]
+ name = "syslog"
+-version = "7.0.0"
++version = "6.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "019f1500a13379b7d051455df397c75770de6311a7a188a699499502704d9f10"
++checksum = "dfc7e95b5b795122fafe6519e27629b5ab4232c73ebb2428f568e82b1a457ad3"
+ dependencies = [
++ "error-chain",
+  "hostname",
+  "libc",
+  "log",
+@@ -1086,18 +1036,18 @@ dependencies = [
+ 
+ [[package]]
+ name = "thiserror"
+-version = "2.0.12"
++version = "1.0.69"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
++checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+ dependencies = [
+  "thiserror-impl",
+ ]
+ 
+ [[package]]
+ name = "thiserror-impl"
+-version = "2.0.12"
++version = "1.0.69"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
++checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -1212,9 +1162,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
+ dependencies = [
+  "pin-project-lite",
++ "tracing-attributes",
+  "tracing-core",
+ ]
+ 
++[[package]]
++name = "tracing-attributes"
++version = "0.1.30"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "81383ab64e72a7a8b8e13130c49e3dab29def6d0c7d76a03087b3cf71c5c6903"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn",
++]
++
+ [[package]]
+ name = "tracing-core"
+ version = "0.1.33"
+@@ -1230,12 +1192,6 @@ version = "1.0.16"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a210d160f08b701c8721ba1c726c11662f877ea6b7094007e1ca9a1041945034"
+ 
+-[[package]]
+-name = "untrusted"
+-version = "0.9.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+-
+ [[package]]
+ name = "url"
+ version = "2.5.4"
+@@ -1245,7 +1201,6 @@ dependencies = [
+  "form_urlencoded",
+  "idna",
+  "percent-encoding",
+- "serde",
+ ]
+ 
+ [[package]]
+@@ -1267,19 +1222,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+ 
+ [[package]]
+-name = "wasi"
+-version = "0.11.0+wasi-snapshot-preview1"
++name = "version_check"
++version = "0.9.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
++checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+ 
+ [[package]]
+ name = "wasi"
+-version = "0.14.2+wasi-0.2.4"
++version = "0.11.0+wasi-snapshot-preview1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9683f9a5a998d873c0d21fcbe3c083009670149a8fab228644b8bd36b2c48cb3"
+-dependencies = [
+- "wit-bindgen-rt",
+-]
++checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
+ 
+ [[package]]
+ name = "wasm-bindgen"
+@@ -1340,15 +1292,27 @@ dependencies = [
+ ]
+ 
+ [[package]]
+-name = "windows"
+-version = "0.52.0"
++name = "winapi"
++version = "0.3.9"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
++checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+ dependencies = [
+- "windows-core",
+- "windows-targets",
++ "winapi-i686-pc-windows-gnu",
++ "winapi-x86_64-pc-windows-gnu",
+ ]
+ 
++[[package]]
++name = "winapi-i686-pc-windows-gnu"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
++
++[[package]]
++name = "winapi-x86_64-pc-windows-gnu"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
++
+ [[package]]
+ name = "windows-core"
+ version = "0.52.0"
+@@ -1446,15 +1410,6 @@ version = "0.52.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+ 
+-[[package]]
+-name = "wit-bindgen-rt"
+-version = "0.39.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
+-dependencies = [
+- "bitflags",
+-]
+-
+ [[package]]
+ name = "write16"
+ version = "1.0.0"
+@@ -1498,16 +1453,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
+ dependencies = [
+  "byteorder",
+- "zerocopy-derive 0.7.35",
+-]
+-
+-[[package]]
+-name = "zerocopy"
+-version = "0.8.24"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2586fea28e186957ef732a5f8b3be2da217d65c5969d4b1e17f973ebbe876879"
+-dependencies = [
+- "zerocopy-derive 0.8.24",
++ "zerocopy-derive",
+ ]
+ 
+ [[package]]
+@@ -1521,17 +1467,6 @@ dependencies = [
+  "syn",
+ ]
+ 
+-[[package]]
+-name = "zerocopy-derive"
+-version = "0.8.24"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a996a8f63c5c4448cd959ac1bab0aaa3306ccfd060472f85943ee0750f0169be"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn",
+-]
+-
+ [[package]]
+ name = "zerofrom"
+ version = "0.1.5"
+diff --git a/Cargo.toml b/Cargo.toml
+index f6a11bf..7dc0b74 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -26,9 +26,9 @@ platforms = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "powerpc64
+ clap = { version = "~4.5.23", features = ["derive"] }
+ syslog = "6.0.0"
+ log = "0.4.27"
+-hickory-server = "0.25.2"
+-hickory-proto = { version = "0.25.2", features = ["tokio"] }
+-hickory-client = "0.25.2"
++hickory-server = "0.24"
++hickory-proto = { version = "0.24", features = ["tokio"] }
++hickory-client = "0.24"
+ futures-util = { version = "0.3.31", default-features = false }
+ tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+ nix = { version = "0.30.1", features = ["fs", "signal", "net"] }
+diff --git a/src/dns/coredns.rs b/src/dns/coredns.rs
+index 76b7044..60f980a 100644
+--- a/src/dns/coredns.rs
++++ b/src/dns/coredns.rs
+@@ -4,14 +4,13 @@ use arc_swap::ArcSwap;
+ use arc_swap::Guard;
+ use futures_util::StreamExt;
+ use futures_util::TryStreamExt;
+-use hickory_client::{
+-    client::Client, proto::rr::rdata, proto::rr::Name, proto::xfer::SerialMessage,
+-};
++use hickory_client::{client::AsyncClient, proto::xfer::SerialMessage, rr::rdata, rr::Name};
++use hickory_proto::tcp::TcpClientStream;
+ use hickory_proto::{
++    iocompat::AsyncIoTokioAsStd,
+     op::{Message, MessageType, ResponseCode},
+-    rr::{RData, Record, RecordType},
+-    runtime::{iocompat::AsyncIoTokioAsStd, TokioRuntimeProvider},
+-    tcp::{TcpClientStream, TcpStream},
++    rr::{DNSClass, RData, Record, RecordType},
++    tcp::TcpStream,
+     udp::{UdpClientStream, UdpStream},
+     xfer::{dns_handle::DnsHandle, BufDnsStreamHandle, DnsRequest},
+     DnsStreamHandle,
+@@ -74,8 +73,7 @@ impl CoreDns {
+         tcp_listener: TcpListener,
+     ) -> AardvarkResult<()> {
+         let address = udp_socket.local_addr()?;
+-        let (mut receiver, sender_original) =
+-            UdpStream::<TokioRuntimeProvider>::with_bound(udp_socket, address);
++        let (mut receiver, sender_original) = UdpStream::with_bound(udp_socket, address);
+ 
+         loop {
+             tokio::select! {
+@@ -271,10 +269,8 @@ impl CoreDns {
+         for addr in nameservers {
+             let (client, handle) = match proto {
+                 Protocol::Udp => {
+-                    let stream = UdpClientStream::builder(addr, TokioRuntimeProvider::default())
+-                        .with_timeout(Some(timeout))
+-                        .build();
+-                    let (cl, bg) = match Client::connect(stream).await {
++                    let stream = UdpClientStream::<UdpSocket>::with_timeout(addr, timeout);
++                    let (cl, bg) = match AsyncClient::connect(stream).await {
+                         Ok(a) => a,
+                         Err(e) => {
+                             debug!("Failed to connect to {addr}: {e}");
+@@ -285,22 +281,17 @@ impl CoreDns {
+                     (cl, handle)
+                 }
+                 Protocol::Tcp => {
+-                    let (stream, sender) = TcpClientStream::new(
+-                        addr,
+-                        None,
+-                        Some(timeout),
+-                        TokioRuntimeProvider::default(),
+-                    );
+-                    //let (stream, sender) = TcpClientStream::<
+-                    //    AsyncIoTokioAsStd<tokio::net::TcpStream>,
+-                    //>::with_timeout(addr, timeout);
+-                    let (cl, bg) = match Client::with_timeout(stream, sender, timeout, None).await {
+-                        Ok(a) => a,
+-                        Err(e) => {
+-                            debug!("Failed to connect to {addr}: {e}");
+-                            continue;
+-                        }
+-                    };
++                    let (stream, sender) = TcpClientStream::<
++                        AsyncIoTokioAsStd<tokio::net::TcpStream>,
++                    >::with_timeout(addr, timeout);
++                    let (cl, bg) =
++                        match AsyncClient::with_timeout(stream, sender, timeout, None).await {
++                            Ok(a) => a,
++                            Err(e) => {
++                                debug!("Failed to connect to {addr}: {e}");
++                                continue;
++                            }
++                        };
+                     let handle = tokio::spawn(bg);
+                     (cl, handle)
+                 }
+@@ -372,7 +363,7 @@ fn parse_dns_msg(body: SerialMessage) -> Option<(Name, RecordType, Message)> {
+     }
+ }
+ 
+-async fn forward_dns_req(cl: Client, message: Message) -> Option<Message> {
++async fn forward_dns_req(cl: AsyncClient, message: Message) -> Option<Message> {
+     let req = DnsRequest::new(message, Default::default());
+     let id = req.id();
+ 
+@@ -472,23 +463,28 @@ fn reply_ip<'a>(
+     if record_type == RecordType::A {
+         for record_addr in resolved_ip_list {
+             if let IpAddr::V4(ipv4) = record_addr {
+-                // Set TTL to 0 which means client should not cache it.
++                let mut record = Record::new();
++                // DO NOT SET A TTL, the default is 0 which means client should not cache it.
+                 // Containers can be be restarted with a different ip at any time so allowing
+                 // caches here doesn't make much sense given the server is local and queries
+                 // should be fast enough anyway.
+-                let record =
+-                    Record::<RData>::from_rdata(request_name.clone(), 0, RData::A(rdata::A(ipv4)));
++                record
++                    .set_name(request_name.clone())
++                    .set_rr_type(RecordType::A)
++                    .set_dns_class(DNSClass::IN)
++                    .set_data(Some(RData::A(rdata::A(ipv4))));
+                 req.add_answer(record);
+             }
+         }
+     } else if record_type == RecordType::AAAA {
+         for record_addr in resolved_ip_list {
+             if let IpAddr::V6(ipv6) = record_addr {
+-                let record = Record::<RData>::from_rdata(
+-                    request_name.clone(),
+-                    0,
+-                    RData::AAAA(rdata::AAAA(ipv6)),
+-                );
++                let mut record = Record::new();
++                record
++                    .set_name(request_name.clone())
++                    .set_rr_type(RecordType::AAAA)
++                    .set_dns_class(DNSClass::IN)
++                    .set_data(Some(RData::AAAA(rdata::AAAA(ipv6))));
+                 req.add_answer(record);
+             }
+         }

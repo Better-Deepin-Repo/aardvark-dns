@@ -1,0 +1,106 @@
+From: Reinhard Tartler <siretart@tauware.de>
+Date: Mon, 1 Sep 2025 19:22:27 -0400
+Subject: Revert "deps: update nix to 0.30.1"
+
+This reverts commit ca223390bc5f56d09b1e24ebc9f1ffb50e5dfeb8.
+---
+ Cargo.lock          |  4 ++--
+ Cargo.toml          |  2 +-
+ src/commands/run.rs |  3 ++-
+ src/server/serve.rs | 13 ++++++++-----
+ 4 files changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 2daad92..8231138 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -759,9 +759,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "nix"
+-version = "0.30.1"
++version = "0.29.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
++checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+ dependencies = [
+  "bitflags",
+  "cfg-if",
+diff --git a/Cargo.toml b/Cargo.toml
+index 7dc0b74..bfef2cd 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -31,7 +31,7 @@ hickory-proto = { version = "0.24", features = ["tokio"] }
+ hickory-client = "0.24"
+ futures-util = { version = "0.3.31", default-features = false }
+ tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+-nix = { version = "0.30.1", features = ["fs", "signal", "net"] }
++nix = { version = "0.29", features = ["fs", "signal", "net"] }
+ libc = "0.2.175"
+ arc-swap = "1.7.1"
+ flume = "0.11.1"
+diff --git a/src/commands/run.rs b/src/commands/run.rs
+index 3e47957..f333bc8 100644
+--- a/src/commands/run.rs
++++ b/src/commands/run.rs
+@@ -4,6 +4,7 @@ use crate::server::serve;
+ use clap::Parser;
+ use nix::unistd;
+ use nix::unistd::{fork, ForkResult};
++use std::os::unix::io::AsRawFd;
+ 
+ #[derive(Parser, Debug)]
+ pub struct Run {}
+@@ -35,7 +36,7 @@ impl Run {
+                 // child never sends message because it exited to early...
+                 drop(ready_pipe_write);
+                 // verify aardvark here and block till will start
+-                let i = unistd::read(&ready_pipe_read, &mut [0_u8; 1])?;
++                let i = unistd::read(ready_pipe_read.as_raw_fd(), &mut [0_u8; 1])?;
+                 drop(ready_pipe_read);
+                 if i == 0 {
+                     // we did not get any message -> child exited with error
+diff --git a/src/server/serve.rs b/src/server/serve.rs
+index e3621a5..d5c681f 100644
+--- a/src/server/serve.rs
++++ b/src/server/serve.rs
+@@ -9,7 +9,8 @@ use crate::error::AardvarkResult;
+ use crate::error::AardvarkWrap;
+ use arc_swap::ArcSwap;
+ use log::{debug, error, info};
+-use nix::unistd::{self, dup2_stderr, dup2_stdin, dup2_stdout};
++use nix::unistd;
++use nix::unistd::dup2;
+ use std::collections::HashMap;
+ use std::collections::HashSet;
+ use std::env;
+@@ -18,6 +19,7 @@ use std::fs::OpenOptions;
+ use std::hash::Hash;
+ use std::io::Error;
+ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
++use std::os::fd::AsRawFd;
+ use std::os::fd::OwnedFd;
+ use std::sync::Arc;
+ use std::sync::Mutex;
+@@ -352,16 +354,17 @@ fn daemonize() -> Result<(), Error> {
+     // remove any controlling terminals
+     // but don't hardstop if this fails
+     let _ = unsafe { libc::setsid() }; // check https://docs.rs/libc
+-
++                                       // close fds -> stdout, stdin and stderr
+     let dev_null = OpenOptions::new()
+         .read(true)
+         .write(true)
+         .open("/dev/null")
+         .map_err(|e| std::io::Error::new(e.kind(), format!("/dev/null: {e:#}")))?;
+     // redirect stdout, stdin and stderr to /dev/null
+-    let _ = dup2_stdin(&dev_null);
+-    let _ = dup2_stdout(&dev_null);
+-    let _ = dup2_stderr(&dev_null);
++    let fd = dev_null.as_raw_fd();
++    let _ = dup2(fd, 0);
++    let _ = dup2(fd, 1);
++    let _ = dup2(fd, 2);
+     Ok(())
+ }
+ 
