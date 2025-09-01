@@ -19,7 +19,7 @@ env:
     NETAVARK_URL: "https://api.cirrus-ci.com/v1/artifact/github/containers/netavark/success/binary.zip?branch=${NETAVARK_BRANCH}"
     # Save a little typing (path relative to $CIRRUS_WORKING_DIR)
     SCRIPT_BASE: "./contrib/cirrus"
-    IMAGE_SUFFIX: "c20250131t121915z-f41f40d13"
+    IMAGE_SUFFIX: "c20250422t130822z-f42f41d13"
     FEDORA_NETAVARK_IMAGE: "fedora-netavark-${IMAGE_SUFFIX}"
     FEDORA_NETAVARK_AMI: "fedora-netavark-aws-arm64-${IMAGE_SUFFIX}"
     EC2_INST_TYPE: "t4g.xlarge"
@@ -54,6 +54,7 @@ build_task:
     reupload_on_changes: true
   setup_script: &setup "$SCRIPT_BASE/setup.sh $CIRRUS_TASK_NAME"
   main_script: &main "$SCRIPT_BASE/runner.sh $CIRRUS_TASK_NAME"
+  postbuild_script: &postbuild hack/tree_status.sh
   # N/B: This script comes from `main` on the netavark repo
   cache_grooming_script: &groom bash "$SCRIPT_BASE/netavark_cache_groom.sh"
   upload_caches: [ "cargo", "targets", "bin" ]
@@ -78,6 +79,7 @@ build_aarch64_task:
     fingerprint_key: "cargo_v1_${DEST_BRANCH}_aarch64"
   setup_script: *setup
   main_script: *main
+  postbuild_script: *postbuild
   cache_grooming_script: *groom
   upload_caches: [ "cargo", "targets", "bin" ]
   # Downstream CI needs the aarch64 binaries from this CI system.

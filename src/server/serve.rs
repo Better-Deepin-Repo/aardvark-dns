@@ -9,8 +9,7 @@ use crate::error::AardvarkResult;
 use crate::error::AardvarkWrap;
 use arc_swap::ArcSwap;
 use log::{debug, error, info};
-use nix::unistd;
-use nix::unistd::dup2;
+use nix::unistd::{self, dup2_stderr, dup2_stdin, dup2_stdout};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
@@ -19,7 +18,6 @@ use std::fs::OpenOptions;
 use std::hash::Hash;
 use std::io::Error;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
-use std::os::fd::AsRawFd;
 use std::os::fd::OwnedFd;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -36,26 +34,24 @@ use std::process;
 type ThreadHandleMap<Ip> =
     HashMap<(String, Ip), (flume::Sender<()>, JoinHandle<AardvarkResult<()>>)>;
 
-pub fn create_pid(config_path: &str) -> Result<(), std::io::Error> {
+pub fn create_pid(config_path: &str) -> AardvarkResult<()> {
     // before serving write its pid to _config_path so other process can notify
     // aardvark of data change.
     let path = Path::new(config_path).join(AARDVARK_PID_FILE);
     let mut pid_file = match File::create(path) {
         Err(err) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Unable to get process pid: {}", err),
-            ));
+            return Err(AardvarkError::msg(format!(
+                "Unable to get process pid: {err}"
+            )));
         }
         Ok(file) => file,
     };
 
     let server_pid = process::id().to_string();
     if let Err(err) = pid_file.write_all(server_pid.as_bytes()) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Unable to write pid to file: {}", err),
-        ));
+        return Err(AardvarkError::msg(format!(
+            "Unable to write pid to file: {err}"
+        )));
     }
 
     Ok(())
@@ -229,11 +225,11 @@ async fn stop_threads<Ip>(
                 // result returned by the future, i.e. that actual
                 // result from start_dns_server()
                 if let Err(e) = res {
-                    error!("Error from dns server: {}", e)
+                    error!("Error from dns server: {e}")
                 }
             }
             // error from tokio itself
-            Err(e) => error!("Error from dns server task: {}", e),
+            Err(e) => error!("Error from dns server task: {e}"),
         }
     }
 }
@@ -278,8 +274,8 @@ async fn read_config_and_spawn(
     };
 
     debug!("Successfully parsed config");
-    debug!("Listen v4 ip {:?}", listen_ip_v4);
-    debug!("Listen v6 ip {:?}", listen_ip_v6);
+    debug!("Listen v4 ip {listen_ip_v4:?}");
+    debug!("Listen v6 ip {listen_ip_v6:?}");
 
     // kill server if listen_ip's are empty
     if listen_ip_v4.is_empty() && listen_ip_v6.is_empty() {
@@ -356,17 +352,16 @@ fn daemonize() -> Result<(), Error> {
     // remove any controlling terminals
     // but don't hardstop if this fails
     let _ = unsafe { libc::setsid() }; // check https://docs.rs/libc
-                                       // close fds -> stdout, stdin and stderr
+
     let dev_null = OpenOptions::new()
         .read(true)
         .write(true)
         .open("/dev/null")
-        .map_err(|e| std::io::Error::new(e.kind(), format!("/dev/null: {:#}", e)))?;
+        .map_err(|e| std::io::Error::new(e.kind(), format!("/dev/null: {e:#}")))?;
     // redirect stdout, stdin and stderr to /dev/null
-    let fd = dev_null.as_raw_fd();
-    let _ = dup2(fd, 0);
-    let _ = dup2(fd, 1);
-    let _ = dup2(fd, 2);
+    let _ = dup2_stdin(&dev_null);
+    let _ = dup2_stdout(&dev_null);
+    let _ = dup2_stderr(&dev_null);
     Ok(())
 }
 
