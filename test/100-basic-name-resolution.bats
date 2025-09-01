@@ -75,7 +75,7 @@ function teardown() {
 	setup_dnsmasq
 
 	# using sh-exec to keep the udp query hanging for at least 3 seconds
-	nsenter -m -n -t $HOST_NS_PID nc -l -u 127.5.5.5 53 --sh-exec "sleep 3" 3>/dev/null &
+	nsenter -m -n -t $HOST_NS_PID ncat -l -u 127.5.5.5 53 --sh-exec "sleep 3" 3>/dev/null &
 	HELPER_PID=$!
 
 	subnet_a=$(random_subnet 5)
@@ -91,7 +91,7 @@ function teardown() {
 	assert "$output" =~ "Query time: [23][0-9]{3} msec" "timeout should be 2.5s so request should then work shortly after (udp)"
 
 	# Now the same with tcp.
-	nsenter -m -n -t $HOST_NS_PID nc -l 127.5.5.5 53 --sh-exec "sleep 3" 3>/dev/null &
+	nsenter -m -n -t $HOST_NS_PID ncat -l 127.5.5.5 53 --sh-exec "sleep 3" 3>/dev/null &
 	HELPER_PID=$!
 	run_in_container_netns "$a1_pid" "dig" +tcp "$TEST_DOMAIN" "@$gw"
 	assert "$output" =~ "Query time: [23][0-9]{3} msec" "timeout should be 2.5s so request should then work shortly after (tcp)"
@@ -117,6 +117,12 @@ function teardown() {
 	run_in_container_netns "$a1_pid" "dig" "+tcp" "+short" "aone" "@$gw"
 	assert "$ip_a1"
 
+	# check multiple TCP requests over single connecting by using +keepopen
+	# https://github.com/containers/aardvark-dns/issues/605
+	run_in_container_netns "$a1_pid" "dig" "+tcp" "+short" +keepopen "@$gw" "aone" "a1" "1a"
+	assert "${lines[0]}" == "$ip_a1" "ip for aone"
+	assert "${lines[1]}" == "$ip_a1" "ip for a1"
+	assert "${lines[2]}" == "$ip_a1" "ip for 1a"
 
 	run_in_container_netns "$a1_pid" "dig" "+short" "$TEST_DOMAIN" "@$gw"
 	# validate that we get an ipv4
