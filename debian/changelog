@@ -1,3 +1,9 @@
+aardvark-dns (1.16.0-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Reinhard Tartler <siretart@tauware.de>  Mon, 01 Sep 2025 15:17:13 -0400
+
 aardvark-dns (1.14.0-3) unstable; urgency=medium
 
   * Fix autopkgtests: replace slirp4netns with dnsmasq, following
