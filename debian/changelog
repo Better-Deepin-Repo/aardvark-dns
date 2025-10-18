@@ -1,3 +1,9 @@
+aardvark-dns (1.16.0-2) unstable; urgency=medium
+
+  * compile against nix 0.30, Closes: #1116312
+
+ -- Reinhard Tartler <siretart@tauware.de>  Sat, 18 Oct 2025 05:51:13 -0400
+
 aardvark-dns (1.16.0-1) unstable; urgency=medium
 
   * New upstream release
