@@ -13,6 +13,7 @@ Depends: bats,
          ncat,
          netavark (>> 1.12),
          nftables,
+         socat,
          util-linux,
          @
 Restrictions: allow-stderr, needs-root, isolation-machine
