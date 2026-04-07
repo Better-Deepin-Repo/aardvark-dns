@@ -1,3 +1,10 @@
+aardvark-dns (1.16.0-3) unstable; urgency=medium
+
+  * fix handling of incorrect tcp packets
+    Fixes: GHSA-hfpq-x728-986j, CVE-2026-35406
+
+ -- Reinhard Tartler <siretart@tauware.de>  Wed, 08 Apr 2026 16:38:33 -0400
+
 aardvark-dns (1.16.0-2) unstable; urgency=medium
 
   * compile against nix 0.30, Closes: #1116312
