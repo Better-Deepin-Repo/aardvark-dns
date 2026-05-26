@@ -482,11 +482,11 @@ index cdf86fb..2daad92 100644
  name = "zerofrom"
  version = "0.1.5"
 diff --git a/Cargo.toml b/Cargo.toml
-index f6a11bf..7dc0b74 100644
+index 145fa25..ae3af81 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -26,9 +26,9 @@ platforms = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "powerpc64
- clap = { version = "~4.5.23", features = ["derive"] }
+ clap = { version = "4.6", features = ["derive"] }
  syslog = "6.0.0"
  log = "0.4.27"
 -hickory-server = "0.25.2"
