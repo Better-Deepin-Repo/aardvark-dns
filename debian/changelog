@@ -1,3 +1,9 @@
+aardvark-dns (1.16.0-4) unstable; urgency=medium
+
+  * Build against clap 4.6, Closes: #1136755
+
+ -- Reinhard Tartler <siretart@tauware.de>  Tue, 26 May 2026 05:47:27 -0400
+
 aardvark-dns (1.16.0-3) unstable; urgency=medium
 
   * fix handling of incorrect tcp packets
