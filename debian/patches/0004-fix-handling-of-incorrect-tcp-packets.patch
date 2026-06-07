@@ -12,10 +12,10 @@ Signed-off-by: Paul Holzinger <pholzing@redhat.com>
  2 files changed, 46 insertions(+), 15 deletions(-)
 
 diff --git a/src/dns/coredns.rs b/src/dns/coredns.rs
-index 60f980a..4bda215 100644
+index 76b7044..cfd5683 100644
 --- a/src/dns/coredns.rs
 +++ b/src/dns/coredns.rs
-@@ -16,7 +16,6 @@ use hickory_proto::{
+@@ -17,7 +17,6 @@ use hickory_proto::{
      DnsStreamHandle,
  };
  use log::{debug, error, trace, warn};
@@ -23,7 +23,7 @@ index 60f980a..4bda215 100644
  use std::net::{IpAddr, SocketAddr};
  use std::sync::Arc;
  use std::sync::Mutex;
-@@ -81,15 +80,21 @@ impl CoreDns {
+@@ -83,15 +82,21 @@ impl CoreDns {
                      break;
                  },
                  v = receiver.next() => {
@@ -48,7 +48,7 @@ index 60f980a..4bda215 100644
                  },
                  res = tcp_listener.accept() => {
                      match res {
-@@ -120,9 +125,16 @@ impl CoreDns {
+@@ -122,9 +127,16 @@ impl CoreDns {
              // we do not want this so add a 3s timeout then we close the socket.
              match tokio::time::timeout(Duration::from_secs(3), hickory_stream.next()).await {
                  Ok(message) => match message {
@@ -68,7 +68,7 @@ index 60f980a..4bda215 100644
                      // end of stream
                      None => break,
                  },
-@@ -138,17 +150,10 @@ impl CoreDns {
+@@ -140,17 +152,10 @@ impl CoreDns {
  
      async fn process_message(
          data: &CoreDnsData,
