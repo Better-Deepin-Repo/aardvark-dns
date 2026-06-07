@@ -1,3 +1,9 @@
+aardvark-dns (1.16.0-5) unstable; urgency=medium
+
+  * drop 0004-fix-handling-of-incorrect-tcp-packets, Closes: #1134234
+
+ -- Reinhard Tartler <siretart@tauware.de>  Sun, 07 Jun 2026 06:03:36 -0400
+
 aardvark-dns (1.16.0-4) unstable; urgency=medium
 
   * Build against clap 4.6, Closes: #1136755
