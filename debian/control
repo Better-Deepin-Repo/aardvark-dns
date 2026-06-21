@@ -2,9 +2,9 @@ Source: aardvark-dns
 Section: net
 Priority: optional
 Maintainer: Reinhard Tartler <siretart@tauware.de>
-Build-Depends: cargo:native <!nocheck>,
-               debhelper-compat (= 13),
+Build-Depends: debhelper-compat (= 13),
                dh-cargo (>= 25),
+               cargo:native <!nocheck>,
                librust-anyhow-dev,
                librust-arc-swap-dev,
                librust-async-broadcast-dev,
@@ -15,6 +15,7 @@ Build-Depends: cargo:native <!nocheck>,
                librust-hickory-client-dev,
                librust-hickory-proto-dev,
                librust-hickory-server-dev,
+               librust-inotify-dev,
                librust-nix-0.30-dev,
                librust-resolv-conf-dev,
                librust-signal-hook-dev,

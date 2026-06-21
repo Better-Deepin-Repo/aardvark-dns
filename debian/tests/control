@@ -16,4 +16,4 @@ Depends: bats,
          socat,
          util-linux,
          @
-Restrictions: allow-stderr, needs-root, isolation-machine
+Restrictions: allow-stderr, isolation-machine, needs-root
