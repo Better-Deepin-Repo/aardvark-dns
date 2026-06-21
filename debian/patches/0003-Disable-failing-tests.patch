@@ -7,7 +7,7 @@ Subject: Disable failing tests
  1 file changed, 4 insertions(+)
 
 diff --git a/test/600-errors.bats b/test/600-errors.bats
-index 0b1b684..83fbdf5 100644
+index 273a13f..d1cf1c6 100644
 --- a/test/600-errors.bats
 +++ b/test/600-errors.bats
 @@ -15,6 +15,8 @@ function teardown() {
@@ -18,7 +18,7 @@ index 0b1b684..83fbdf5 100644
 +    skip 'Debian-local: disable to avoid timeout'
  	# bind the port to force a failure for aardvark-dns
  	# we cannot use run_is_host_netns to run in the background
- 	nsenter -m -n -t $HOST_NS_PID ncat -u -l 0.0.0.0 53 </dev/null 3> /dev/null &
+ 	nsenter -m -n -t $HOST_NS_PID socat UDP4-LISTEN:53 - 3> /dev/null &
 @@ -31,6 +33,8 @@ function teardown() {
  }
  
@@ -27,4 +27,4 @@ index 0b1b684..83fbdf5 100644
 +    skip 'Debian-local: disable to avoid timeout'
  	# bind the port to force a failure for aardvark-dns
  	# we cannot use run_is_host_netns to run in the background
- 	nsenter -m -n -t $HOST_NS_PID ncat -l 0.0.0.0 53 </dev/null 3> /dev/null &
+ 	nsenter -m -n -t $HOST_NS_PID socat TCP4-LISTEN:53 - 3> /dev/null &
