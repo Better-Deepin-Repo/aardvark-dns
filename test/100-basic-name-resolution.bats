@@ -74,8 +74,8 @@ function teardown() {
 @test "basic container - dns itself (bad and good should fall back)" {
 	setup_dnsmasq
 
-	# using sh-exec to keep the udp query hanging for at least 3 seconds
-	nsenter -m -n -t $HOST_NS_PID ncat -l -u 127.5.5.5 53 --sh-exec "sleep 3" 3>/dev/null &
+	# using exec to keep the udp query hanging for at least 3 seconds
+	nsenter -m -n -t $HOST_NS_PID socat UDP4-LISTEN:53,bind=127.5.5.5 EXEC:"sleep 3" 3>/dev/null &
 	HELPER_PID=$!
 
 	subnet_a=$(random_subnet 5)
@@ -90,8 +90,9 @@ function teardown() {
 	run_in_container_netns "$a1_pid" "dig" "$TEST_DOMAIN" "@$gw"
 	assert "$output" =~ "Query time: [23][0-9]{3} msec" "timeout should be 2.5s so request should then work shortly after (udp)"
 
+	kill -9 "$HELPER_PID" || true
 	# Now the same with tcp.
-	nsenter -m -n -t $HOST_NS_PID ncat -l 127.5.5.5 53 --sh-exec "sleep 3" 3>/dev/null &
+	nsenter -m -n -t $HOST_NS_PID socat TCP4-LISTEN:53,bind=127.5.5.5 EXEC:"sleep 3" 3>/dev/null &
 	HELPER_PID=$!
 	run_in_container_netns "$a1_pid" "dig" +tcp "$TEST_DOMAIN" "@$gw"
 	assert "$output" =~ "Query time: [23][0-9]{3} msec" "timeout should be 2.5s so request should then work shortly after (tcp)"
@@ -327,4 +328,72 @@ function teardown() {
 	# Set recursion bit is already set if requested so output must not
 	# contain unexpected warning.
 	assert "$output" !~ "WARNING: recursion requested but not available"
+}
+
+@test "nameservers updated when resolv.conf is modified" {
+	setup_dnsmasq
+
+	# Set up second dnsmasq server with different IP
+	run_in_host_netns dnsmasq --conf-file=/dev/null --pid-file="$AARDVARK_TMPDIR/dnsmasq_second.pid" \
+		--except-interface=lo --listen-address=127.1.1.2 --bind-interfaces \
+		--address=/second-server.test/192.168.100.2 --no-resolv --no-hosts
+	HELPER_PID=$(cat $AARDVARK_TMPDIR/dnsmasq_second.pid)
+
+	subnet_a=$(random_subnet 5)
+	create_config network_name="podman1" container_id=$(random_string 64) container_name="aone" subnet="$subnet_a"
+	config_a1=$config
+	gw=$(echo "$config_a1" | jq -r .network_info.podman1.subnets[0].gateway)
+	create_container "$config_a1"
+	a1_pid=$CONTAINER_NS_PID
+
+	# Resolve using the first DNS server
+	run_in_container_netns "$a1_pid" "dig" "+short" "testname" "@$gw"
+	assert "$output" == "198.51.100.1" "should resolve using first DNS server"
+
+	# Cannot resolve second server's domain yet
+	expected_rc=1 run_in_container_netns "$a1_pid" "host" "-t" "a" "second-server.test" "$gw"
+	assert "$output" =~ "not found" "should not resolve second server's domain initially"
+
+	# Update resolv.conf to point to second DNS server
+    echo "nameserver 127.1.1.2" > "$AARDVARK_TMPDIR/resolv.conf"
+
+	retries=20
+	while [[ $retries -gt 0 ]]; do
+		expected_rc="?" run_in_container_netns "$a1_pid" "host" "-t" "a" "second-server.test" "$gw"
+		if [[ $status -eq 0 ]]; then
+			break
+		fi
+		sleep 0.5
+		retries=$((retries -1))
+	done
+
+	# Resolve using the second DNS server
+	run_in_container_netns "$a1_pid" "dig" "+short" "second-server.test" "@$gw"
+	assert "$output" == "192.168.100.2" "should resolve using second DNS server after resolv.conf change"
+}
+
+@test "check for incorrect tcp packet" {
+	setup_dnsmasq
+
+	subnet_a=$(random_subnet 5)
+	create_config network_name="podman1" container_id=$(random_string 64) container_name="aone" subnet="$subnet_a"
+	config_a1=$config
+	ip_a1=$(echo "$config_a1" | jq -r .networks.podman1.static_ips[0])
+	gw=$(echo "$config_a1" | jq -r .network_info.podman1.subnets[0].gateway)
+	create_container "$config_a1"
+	a1_pid=$CONTAINER_NS_PID
+
+	# send custom crafted package, first two bytes mean package length 60 but we never send more and close instead
+	run_in_container_netns "$a1_pid" socat - TCP4:$gw:53 <<<$'\x00\x3c'
+
+	# wait a second to meaningful check cpu usage
+	sleep 1
+
+	av_cpu=$(ps -o c --no-headers -p $(<$AARDVARK_TMPDIR/aardvark-dns/aardvark.pid))
+	echo $av_cpu --
+	assert "$av_cpu" -lt 5 "aardvark-dns used to much cpu"
+
+	# ensure dns via tcp still works
+	run_in_container_netns "$a1_pid" "dig" +tcp "+short" "aone" "@$gw"
+	assert "$ip_a1"
 }
