@@ -1,3 +1,9 @@
+aardvark-dns (1.17.1-1) UNRELEASED; urgency=medium
+
+  * New upstream version
+
+ -- Reinhard Tartler <siretart@tauware.de>  Sun, 21 Jun 2026 18:03:36 -0400
+
 aardvark-dns (1.16.0-5) unstable; urgency=medium
 
   * drop 0004-fix-handling-of-incorrect-tcp-packets, Closes: #1134234
