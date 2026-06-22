@@ -1,6 +1,5 @@
 Source: aardvark-dns
 Section: net
-Priority: optional
 Maintainer: Reinhard Tartler <siretart@tauware.de>
 Build-Depends: debhelper-compat (= 13),
                dh-cargo (>= 25),
@@ -26,7 +25,7 @@ Build-Depends: debhelper-compat (= 13),
                librust-tokio+full-dev,
                libstd-rust-dev <!nocheck>,
                rustc:native <!nocheck>
-Standards-Version: 4.7.2
+Standards-Version: 4.7.4
 Homepage: https://github.com/containers/aardvark-dns
 Vcs-Browser: https://salsa.debian.org/debian/aardvark-dns
 Vcs-Git: https://salsa.debian.org/debian/aardvark-dns.git
