@@ -1,3 +1,11 @@
+aardvark-dns (1.17.1-2) unstable; urgency=medium
+
+  * Upload to unstable
+  * Declare compliance with Debian Policy 4.7.4
+  * Update debian/watch to use GitHub template (version 5 format)
+
+ -- Reinhard Tartler <siretart@tauware.de>  Mon, 22 Jun 2026 05:53:22 -0400
+
 aardvark-dns (1.17.1-1) experimental; urgency=medium
 
   * New upstream version
