@@ -1,3 +1,14 @@
+aardvark-dns (1.17.1-2.1) unstable; urgency=medium
+
+  [ Simon Quigley ]
+  * Rebuild against Hickory DNS 0.26; cherry-pick upstream PR #695
+    (hickory-net).
+
+  [ Reinhard Tartler ]
+  * Upload to Debian
+
+ -- Reinhard Tartler <siretart@tauware.de>  Mon, 17 Aug 2026 08:56:59 -0400
+
 aardvark-dns (1.17.1-2) unstable; urgency=medium
 
   * Upload to unstable

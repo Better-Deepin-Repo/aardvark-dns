@@ -1,3 +1,4 @@
 relax-deps.patch
 0003-Disable-failing-tests.patch
 0004-fix-handling-of-incorrect-tcp-packets.patch
+hickory-0.26-pr695.patch
