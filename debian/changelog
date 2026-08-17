@@ -1,8 +1,8 @@
-aardvark-dns (1.17.1-2.1) unstable; urgency=medium
+aardvark-dns (1.17.1-3) unstable; urgency=medium
 
   [ Simon Quigley ]
   * Rebuild against Hickory DNS 0.26; cherry-pick upstream PR #695
-    (hickory-net).
+    (hickory-net), closes: #1143887
 
   [ Reinhard Tartler ]
   * Upload to Debian
