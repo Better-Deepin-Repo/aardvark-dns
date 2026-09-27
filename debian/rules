@@ -1,19 +1,34 @@
 #!/usr/bin/make -f
 
-# generate cargo-checksum file
-_mkchecksum = printf '{"package":"%s","files":{}}\n' \
- $$(sha256sum $(or $2,$(dir $1)Cargo.toml) | grep -Po '^\S+') > $1;
-
 %:
-	dh $@ --buildsystem cargo
+	dh $@
 
-# actually run the testsuite, not just build it
+# Better Deepin: instead of the Debian system-crate stack (dh-cargo and
+# the librust-*-dev build-dependencies), the Rust dependencies are
+# downloaded at build time against crates.io while strictly honoring the
+# upstream Cargo.lock. debian/rules fetches first (cargo fetch --locked
+# into CARGO_HOME) and then compiles and tests strictly --offline, so
+# dependencies never affect version resolution. Nothing is vendored in
+# the repository; point CARGO_HOME at a persistent directory (make
+# CARGO_HOME=/path/to/cargo-home) to reuse downloads between builds.
+CARGO_HOME ?= $(CURDIR)/debian/cargo-home
+export CARGO_HOME
+
+override_dh_auto_configure:
+	cargo fetch --locked
+
+override_dh_auto_build:
+	cargo build --release --locked --offline
+
 override_dh_auto_test:
-	dh_auto_test -v --buildsystem cargo -- test
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cargo test --release --locked --offline
+endif
 
-execute_before_dh_auto_configure:
-	$(call _mkchecksum,debian/cargo-checksum.json,Cargo.toml)
+override_dh_auto_install:
+	mkdir -p debian/aardvark-dns/usr/lib/podman
+	install -m755 target/release/aardvark-dns debian/aardvark-dns/usr/lib/podman/
 
-execute_after_dh_install:
-	mkdir -vp debian/aardvark-dns/usr/lib
-	mv -v debian/aardvark-dns/usr/bin debian/aardvark-dns/usr/lib/podman
+override_dh_auto_clean:
+	cargo clean
+	rm -rf debian/cargo-home .cargo vendor

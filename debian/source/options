@@ -1,0 +1,4 @@
+# Better Deepin: keep transient Rust build artifacts out of dpkg-source
+# diffs; developers may leave a cargo-vendor tree or quilt state in the
+# worktree, which must never be folded into the source package.
+extend-diff-ignore = "(^|/)(vendor|\.cargo|\.pc)(/|$)"

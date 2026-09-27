@@ -5,3 +5,6 @@ targets/
 netavark.1
 vendor/
 vendor-tarball/
+/.cargo/
+/debian/cargo-home/
+/.pc/

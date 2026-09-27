@@ -2,27 +2,7 @@ Source: aardvark-dns
 Section: net
 Maintainer: Reinhard Tartler <siretart@tauware.de>
 Build-Depends: debhelper-compat (= 13),
-               dh-cargo (>= 25),
                cargo:native <!nocheck>,
-               librust-anyhow-dev,
-               librust-arc-swap-dev,
-               librust-async-broadcast-dev,
-               librust-chrono-dev,
-               librust-clap-4+derive-dev,
-               librust-flume-dev,
-               librust-futures-util-dev,
-               librust-hickory-net-dev,
-               librust-hickory-proto-dev,
-               librust-hickory-server-dev,
-               librust-inotify-dev,
-               librust-nix-0.30-dev,
-               librust-resolv-conf-dev,
-               librust-signal-hook-dev,
-               librust-strsim-dev,
-               librust-syslog-dev,
-               librust-termcolor-dev,
-               librust-textwrap-dev,
-               librust-tokio+full-dev,
                libstd-rust-dev <!nocheck>,
                rustc:native <!nocheck>
 Standards-Version: 4.7.4
